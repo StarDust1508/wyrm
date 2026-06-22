@@ -21,10 +21,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # Set this in repo → Settings → Secrets and variables → Actions → Variables.
+          # Empty → the site stays in localStorage demo mode.
+          VITE_PB_URL: ${{ vars.VITE_PB_URL }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
