@@ -23,16 +23,16 @@ window.React = React; window.ReactDOM = ReactDOM;
 (function () {
   // ---- tag taxonomy (mood-coded) ----
   const TAGS = {
-    'dark-fantasy': { label: 'Dark Fantasy', hue: 28 },
-    'tragedy':      { label: 'Tragedy',      hue: 300 },
-    'redemption':   { label: 'Redemption',   hue: 168 },
-    'romance':      { label: 'Romance',      hue: 4 },
-    'war':          { label: 'War',          hue: 50 },
-    'horror':       { label: 'Horror',       hue: 18 },
-    'comedy':       { label: 'Comedy',       hue: 86 },
-    'happy-end':    { label: 'Happy End',    hue: 150 },
-    'slow-burn':    { label: 'Slow Burn',    hue: 330 },
-    'politics':     { label: 'Politics',     hue: 240 },
+    'dark-fantasy': { label: 'Тёмное фэнтези', hue: 28 },
+    'tragedy':      { label: 'Трагедия',       hue: 300 },
+    'redemption':   { label: 'Искупление',     hue: 168 },
+    'romance':      { label: 'Романтика',      hue: 4 },
+    'war':          { label: 'Война',          hue: 50 },
+    'horror':       { label: 'Ужасы',          hue: 18 },
+    'comedy':       { label: 'Комедия',        hue: 86 },
+    'happy-end':    { label: 'Светлый финал',  hue: 150 },
+    'slow-burn':    { label: 'Медленное пламя', hue: 330 },
+    'politics':     { label: 'Политика',       hue: 240 },
   };
 
   // ---- characters (states vary per branch node) ----
@@ -255,6 +255,7 @@ function Icon({ name, size = 18, stroke = 1.6 }) {
     x:       <path d="M6 6l12 12M18 6L6 18"/>,
     blocks:  <g><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/><path d="M13 5h6a2 2 0 0 1 2 2v4M11 13H5a2 2 0 0 0-2 2v4"/></g>,
     bolt:    <path d="M13 2L4 14h7l-1 8 9-12h-7z"/>,
+    menu:    <path d="M4 7h16M4 12h16M4 17h16"/>,
   };
   return <svg {...p} aria-hidden="true">{paths[name]}</svg>;
 }
@@ -2429,6 +2430,10 @@ function useFeed() {
 function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
   const [text, setText] = useState('');
   const [kind, setKind] = useState(defaultKind || 'post');
+  const [tags, setTags] = useState([]);
+  const [showTags, setShowTags] = useState(false);
+  const allTags = Object.keys(window.WYRM.TAGS);
+  const toggleTag = (t) => setTags(s => s.includes(t) ? s.filter(x => x !== t) : (s.length < 3 ? [...s, t] : s));
   if (!user) {
     return (
       <div className="card" style={{ padding: '20px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 26 }}>
@@ -2439,14 +2444,14 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
   }
   const submit = () => {
     const t = text.trim(); if (!t) return;
-    onPost({ author: user.handle || user.name, kind, text: t, tags: [], ref: null });
-    setText('');
+    onPost({ author: user.handle || user.name, kind, text: t, tags, ref: null });
+    setText(''); setTags([]); setShowTags(false);
   };
   return (
     <div className="card" style={{ padding: '18px 20px', marginBottom: 26 }}>
       <div style={{ display: 'flex', gap: 12 }}>
         <Avatar name={user.handle || user.name} size={36} />
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <textarea value={text} onChange={e => setText(e.target.value)} placeholder={placeholder || 'Что нового в твоих историях?'}
             className="compose-input" rows={3} style={{ width: '100%', resize: 'vertical', minHeight: 64 }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -2455,10 +2460,18 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
                 <Icon name={v.icon} size={11} />{v.label}
               </button>
             ))}
+            <button className="tag tag-btn" data-active={showTags || tags.length > 0} onClick={() => setShowTags(s => !s)}>
+              <Icon name="star" size={11} />Жанры{tags.length ? ' · ' + tags.length : ''}
+            </button>
             <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={submit} disabled={!text.trim()}>
               <Icon name="quill" size={14} />Опубликовать
             </button>
           </div>
+          {showTags && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, paddingTop: 12, borderTop: 'var(--rule-style)' }}>
+              {allTags.map(t => <Tag key={t} id={t} asButton active={tags.includes(t)} onClick={() => toggleTag(t)} />)}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2967,6 +2980,7 @@ function App() {
   const [route, setRoute] = useState('landing');
   const [ctx, setCtx] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const saved = useRef(loadCfg()).current;
   const [theme, setTheme] = useState(saved.theme || 'manuscript');
   const [accent, setAccent] = useState(saved.accent || 'theme');
@@ -3030,6 +3044,9 @@ function App() {
           <span className="logo"><span className="w">W</span>YRM</span>
           <span className="tld">сотвори историю вместе</span>
         </div>
+        <button className="icon-btn nav-burger" title="Меню" aria-label="Меню" onClick={() => setMenuOpen(o => !o)}>
+          <Icon name={menuOpen ? 'x' : 'menu'} size={20} />
+        </button>
         <nav className="nav-links">
           {NAV.map(([r, l]) => <button key={r} className="nav-link" data-active={route === r} onClick={() => go(r, r === 'reader' ? { story: 'ashes', node: null } : undefined)}>{l}</button>)}
           <StudioMenu items={STUDIO} route={route} go={go} active={studioRoutes.includes(route)} />
@@ -3048,6 +3065,33 @@ function App() {
             : <button className="btn btn-primary btn-sm" onClick={() => openAuth('login')}>Войти</button>}
         </nav>
       </header>
+
+      {/* мобильное меню */}
+      <div className="mobile-menu" data-open={menuOpen} onClick={() => setMenuOpen(false)}>
+        <div className="mobile-menu-panel" onClick={e => e.stopPropagation()}>
+          {[...NAV, ['compose', 'Писать']].map(([r, l]) => (
+            <button key={r} className="mobile-link" data-active={route === r}
+              onClick={() => { go(r, r === 'reader' ? { story: 'ashes', node: null } : undefined); setMenuOpen(false); }}>{l}</button>
+          ))}
+          <div className="mobile-menu-label">Студия</div>
+          {STUDIO.map(([r, l, ic]) => (
+            <button key={r} className="mobile-link" data-active={route === r} onClick={() => { go(r); setMenuOpen(false); }}>
+              <Icon name={ic} size={15} />{l}
+            </button>
+          ))}
+          <div className="mobile-menu-label">Ещё</div>
+          <button className="mobile-link" onClick={() => { go('plugins'); setMenuOpen(false); }}><Icon name="blocks" size={15} />Расширения{enabledPlugins > 0 ? ' · ' + enabledPlugins : ''}</button>
+          <button className="mobile-link" onClick={() => { setTheme(t => t === 'night' ? 'manuscript' : 'night'); }}><Icon name={theme === 'night' ? 'moon' : 'sun'} size={15} />Сменить мир</button>
+          <button className="mobile-link" onClick={() => { setSettingsOpen(true); setMenuOpen(false); }}><Icon name="sliders" size={15} />Настройки</button>
+          {user
+            ? <React.Fragment>
+                <div className="mobile-menu-label">@{user.handle}</div>
+                <button className="mobile-link" onClick={() => { go('compose'); setMenuOpen(false); }}><Icon name="quill" size={15} />Мои ветки</button>
+                <button className="mobile-link" onClick={async () => { await store.signOut(); setUser(null); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Выйти</button>
+              </React.Fragment>
+            : <button className="btn btn-primary" style={{ margin: '12px 0 4px', justifyContent: 'center' }} onClick={() => { openAuth('login'); setMenuOpen(false); }}>Войти</button>}
+        </div>
+      </div>
 
       {showIntro && <IntroFilm onDone={finishIntro} onAuth={() => { finishIntro(); openAuth('register'); }} />}
       <AuthModal open={authOpen} mode={authMode} setMode={setAuthMode} onClose={() => setAuthOpen(false)} onAuth={doAuth} />
