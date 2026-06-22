@@ -2207,6 +2207,434 @@ Object.assign(window, { IntroFilm });
 
 
 
+/* ╔══ 15 · Лента и Сообщества — данные, хранилище, экраны ══╗ */
+
+/* ---- крошечное хранилище поверх localStorage ---- */
+function wyrmLoad(key, fallback) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return v == null ? fallback : v; }
+  catch (e) { return fallback; }
+}
+function wyrmSave(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+
+/* относительное время */
+function timeAgo(ts) {
+  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return 'только что';
+  const m = Math.floor(s / 60); if (m < 60) return m + ' мин назад';
+  const h = Math.floor(m / 60); if (h < 24) return h + ' ч назад';
+  const d = Math.floor(h / 24); if (d < 30) return d + ' дн назад';
+  return new Date(ts).toLocaleDateString('ru');
+}
+
+/* типы постов ленты (иконка + подпись) */
+const FEED_KINDS = {
+  branch:  { icon: 'fork',  label: 'новая ветвь' },
+  vote:    { icon: 'star',  label: 'голос за канон' },
+  discuss: { icon: 'users', label: 'обсуждение' },
+  post:    { icon: 'quill', label: 'запись' },
+};
+
+/* затравка ленты (минуты «назад» превращаются в ts при загрузке) */
+const FEED_SEED = [
+  { id: 'f1', author: 'grimwarden', kind: 'branch', ago: 22,  community: 'ashes-guild',
+    text: 'Открыл ветвь «Корона из костей»: а что, если Кейра не простит Аркадию? Город заслужил огонь — и я дал его городу полной мерой.',
+    ref: { story: 'ashes', storyTitle: 'Пепел Аркадии', node: 'B1' }, tags: ['horror', 'politics'], reacts: { flame: 34, star: 11 } },
+  { id: 'f2', author: 'mara.q', kind: 'vote', ago: 64, community: 'ashes-guild',
+    text: 'Голосую за «Цитадель молчания» в канон. Сцена, где Архонт называет цену — лучшее, что случилось с этим древом.',
+    ref: { story: 'ashes', storyTitle: 'Пепел Аркадии', node: 'A1a' }, tags: ['redemption'], reacts: { flame: 51, star: 28 } },
+  { id: 'f3', author: 'lune_v', kind: 'post', ago: 140, community: 'soft-endings',
+    text: 'В «Стеклянном саду» добавила оранжерею воспоминаний бабушки. Каждый цветок — чужая жизнь, и один из них наконец зацвёл.',
+    ref: { story: 'glass', storyTitle: 'Стеклянный сад', node: null }, tags: ['slow-burn', 'tragedy'], reacts: { flame: 19, star: 7 } },
+  { id: 'f4', author: 'cogsmith', kind: 'discuss', ago: 300, community: 'machine-gods',
+    text: 'Спор недели: если боги — инженеры, то молитва это запрос на обслуживание? Накидайте аргументов, готовлю главу-диспут.',
+    ref: { story: 'gears', storyTitle: 'Шестерни Вавилона', node: null }, tags: ['politics'], reacts: { flame: 42, star: 9 } },
+  { id: 'f5', author: 'jest_r', kind: 'branch', ago: 600, community: null,
+    text: 'Гильдия неудачников снова спасла мир. Случайно. Ветвь, где они даже не заметили, что это сделали — самая смешная из всех.',
+    ref: { story: 'comedy', storyTitle: 'Гильдия неудачников', node: null }, tags: ['comedy', 'happy-end'], reacts: { flame: 88, star: 40 } },
+  { id: 'f6', author: 'tide.witch', kind: 'post', ago: 1440, community: 'salt-circle',
+    text: 'Деревня вытащила из сетей не рыбу, а спящее божество. Кто хочет писать пробуждение — оставляю развилку открытой.',
+    ref: { story: 'salt', storyTitle: 'Соль и пророчество', node: null }, tags: ['horror', 'dark-fantasy'], reacts: { flame: 27, star: 15 } },
+];
+
+/* затравка сообществ */
+const COMMUNITIES_SEED = [
+  { id: 'ashes-guild', name: 'Гильдия Пепла', blurb: 'Канон и ереси «Пепла Аркадии». Спорим о судьбе Кейры до хрипоты и плетём ветви до рассвета.', tags: ['dark-fantasy', 'war'], members: 312, stories: ['ashes'], hue: 28, owner: 'eira_noct' },
+  { id: 'soft-endings', name: 'Тихие финалы', blurb: 'Для тех, кто верит в счастливый конец даже для драконов. Медленно, тепло, без лишней крови.', tags: ['happy-end', 'romance', 'slow-burn'], members: 148, stories: ['glass', 'comedy'], hue: 150, owner: 'lune_v' },
+  { id: 'machine-gods', name: 'Боги-инженеры', blurb: 'Стимпанк, политика и теология машин. Вселенные «Шестерней Вавилона» и «Тысячи корон».', tags: ['politics', 'war'], members: 97, stories: ['gears', 'crown'], hue: 240, owner: 'cogsmith' },
+  { id: 'salt-circle', name: 'Соляной круг', blurb: 'Морской хоррор и пробуждённые божества. Не читать в одиночестве после полуночи.', tags: ['horror', 'dark-fantasy'], members: 64, stories: ['salt'], hue: 200, owner: 'tide.witch' },
+];
+
+/* ---- общий стейт ленты: затравка + пользовательские посты + реакции ---- */
+function useFeed() {
+  const [posts, setPosts] = useState(() => {
+    const seeded = FEED_SEED.map(p => ({ ...p, ts: Date.now() - p.ago * 60000 }));
+    const mine = wyrmLoad('wyrm.feed', []);
+    return [...mine, ...seeded];
+  });
+  const [reacts, setReacts] = useState(() => wyrmLoad('wyrm.reacts', {}));
+
+  const addPost = (p) => {
+    const post = { id: 'u' + Date.now(), ts: Date.now(), reacts: { flame: 0, star: 0 }, ...p };
+    setPosts(list => [post, ...list]);
+    const mine = wyrmLoad('wyrm.feed', []);
+    wyrmSave('wyrm.feed', [post, ...mine]);
+    return post;
+  };
+  const toggleReact = (id, key) => {
+    setReacts(r => {
+      const cur = r[id] || {};
+      const next = { ...r, [id]: { ...cur, [key]: !cur[key] } };
+      wyrmSave('wyrm.reacts', next);
+      return next;
+    });
+  };
+  return { posts, addPost, reacts, toggleReact };
+}
+
+/* поле ввода нового поста */
+function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
+  const [text, setText] = useState('');
+  const [kind, setKind] = useState(defaultKind || 'post');
+  if (!user) {
+    return (
+      <div className="card" style={{ padding: '20px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 26 }}>
+        <span style={{ color: 'var(--ink-2)' }}>Войди, чтобы делиться ветвями, голосами и спорами.</span>
+        <button className="btn btn-primary btn-sm" onClick={() => go && go('landing')}>Войти и писать</button>
+      </div>
+    );
+  }
+  const submit = () => {
+    const t = text.trim(); if (!t) return;
+    onPost({ author: user.handle || user.name, kind, text: t, tags: [], ref: null });
+    setText('');
+  };
+  return (
+    <div className="card" style={{ padding: '18px 20px', marginBottom: 26 }}>
+      <div style={{ display: 'flex', gap: 12 }}>
+        <Avatar name={user.handle || user.name} size={36} />
+        <div style={{ flex: 1 }}>
+          <textarea value={text} onChange={e => setText(e.target.value)} placeholder={placeholder || 'Что нового в твоих историях?'}
+            className="compose-input" rows={3} style={{ width: '100%', resize: 'vertical', minHeight: 64 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            {Object.entries(FEED_KINDS).map(([k, v]) => (
+              <button key={k} className="tag tag-btn" data-active={kind === k} onClick={() => setKind(k)}>
+                <Icon name={v.icon} size={11} />{v.label}
+              </button>
+            ))}
+            <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={submit} disabled={!text.trim()}>
+              <Icon name="quill" size={14} />Опубликовать
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* карточка поста ленты */
+function PostCard({ post, reacts, onReact, go }) {
+  const k = FEED_KINDS[post.kind] || FEED_KINDS.post;
+  const mine = reacts[post.id] || {};
+  const count = (base, on) => (base || 0) + (on ? 1 : 0);
+  return (
+    <article className="card reveal" style={{ padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <Avatar name={post.author} size={34} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600 }}>@{post.author}</span>
+            <span className="mono" style={{ fontSize: '.54rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name={k.icon} size={11} />{k.label}
+            </span>
+          </div>
+          <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>{timeAgo(post.ts)}</span>
+        </div>
+      </div>
+
+      <p style={{ color: 'var(--ink)', lineHeight: 1.6, marginBottom: post.ref || (post.tags && post.tags.length) ? 14 : 4 }}>{post.text}</p>
+
+      {post.ref && (
+        <button className="path-crumb" onClick={() => go && go('reader', post.ref.node ? { node: post.ref.node } : undefined)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 3, border: 'var(--rule-style)', background: 'var(--bg-2)', marginBottom: 14, cursor: 'pointer', maxWidth: '100%' }}>
+          <Icon name="branch" size={13} />
+          <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-2)' }}>{post.ref.storyTitle}{post.ref.node ? ' · гл. ' + post.ref.node.toUpperCase() : ''}</span>
+          <Icon name="arrow" size={13} />
+        </button>
+      )}
+
+      {post.tags && post.tags.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>{post.tags.map(t => <Tag key={t} id={t} />)}</div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, borderTop: 'var(--rule-style)', paddingTop: 12 }}>
+        <button className="tag tag-btn" data-active={!!mine.flame} onClick={() => onReact(post.id, 'flame')}>
+          <Icon name="flame" size={12} />{count(post.reacts && post.reacts.flame, mine.flame)}
+        </button>
+        <button className="tag tag-btn" data-active={!!mine.star} onClick={() => onReact(post.id, 'star')}>
+          <Icon name="star" size={12} />{count(post.reacts && post.reacts.star, mine.star)}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+/* ---------------- ЛЕНТА ---------------- */
+function Feed({ go, user }) {
+  const ref = useReveal();
+  const { posts, addPost, reacts, toggleReact } = useFeed();
+  const [filter, setFilter] = useState('all');
+  const kinds = [['all', 'Всё'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
+  const list = posts.filter(p => filter === 'all' || p.kind === filter);
+
+  return (
+    <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
+      <div className="reveal" style={{ marginBottom: 26 }}>
+        <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
+        <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Лента</h1>
+      </div>
+
+      <FeedComposer user={user} onPost={addPost} go={go} />
+
+      <div className="reveal" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '12px 0', marginBottom: 26 }}>
+        {kinds.map(([k, l]) => (
+          <button key={k} className="nav-link" data-active={filter === k} onClick={() => setFilter(k)} style={{ fontSize: '.84rem' }}>{l}</button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {list.length === 0
+          ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>Пока тут тихо. Напиши первым.</p>
+          : list.map(p => <PostCard key={p.id} post={p} reacts={reacts} onReact={toggleReact} go={go} />)}
+      </div>
+    </div>
+  );
+}
+
+/* ---- членство в сообществах ---- */
+function useCommunities() {
+  const [communities, setCommunities] = useState(() => {
+    const mine = wyrmLoad('wyrm.communities', []);
+    return [...mine, ...COMMUNITIES_SEED];
+  });
+  const [joined, setJoined] = useState(() => wyrmLoad('wyrm.memberships', []));
+
+  const create = (c) => {
+    const community = { id: 'c' + Date.now(), members: 1, stories: [], ...c };
+    setCommunities(list => [community, ...list]);
+    const mine = wyrmLoad('wyrm.communities', []);
+    wyrmSave('wyrm.communities', [community, ...mine]);
+    setJoined(j => { const next = [...j, community.id]; wyrmSave('wyrm.memberships', next); return next; });
+    return community;
+  };
+  const toggleJoin = (id) => {
+    setJoined(j => {
+      const next = j.includes(id) ? j.filter(x => x !== id) : [...j, id];
+      wyrmSave('wyrm.memberships', next);
+      return next;
+    });
+  };
+  return { communities, joined, create, toggleJoin };
+}
+
+/* карточка сообщества в сетке */
+function CommunityCard({ c, joined, onToggle, onOpen }) {
+  return (
+    <div className="reveal story-card card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', textAlign: 'left' }}>
+      <button onClick={onOpen} style={{ position: 'relative', height: 96, cursor: 'pointer', textAlign: 'left',
+        background: `linear-gradient(135deg, oklch(0.6 0.13 ${c.hue} / .35), oklch(0.5 0.1 ${(c.hue + 40) % 360} / .15))`,
+        borderBottom: 'var(--rule-style)' }}>
+        <span style={{ position: 'absolute', inset: 0, background: `radial-gradient(60% 80% at 20% 0%, oklch(0.7 0.14 ${c.hue} / .25), transparent 70%)` }} />
+        <span className="display" style={{ position: 'absolute', left: 16, bottom: 12, fontSize: '1.5rem' }}>{c.name}</span>
+      </button>
+      <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+        <p style={{ color: 'var(--ink-2)', fontSize: '.9rem', flex: 1 }}>{c.blurb}</p>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(c.tags || []).map(t => <Tag key={t} id={t} />)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, borderTop: 'var(--rule-style)', paddingTop: 12 }}>
+          <span className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <Icon name="users" size={13} />{(c.members + (joined ? 1 : 0)).toLocaleString('ru')}
+          </span>
+          <button className={'btn btn-sm ' + (joined ? 'btn-ghost' : 'btn-primary')} onClick={onToggle}>
+            {joined ? <React.Fragment><Icon name="check" size={13} />Вступил</React.Fragment> : 'Вступить'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- СООБЩЕСТВА (сетка + создание) ---------------- */
+function Communities({ go, user }) {
+  const ref = useReveal();
+  const { communities, joined, create, toggleJoin } = useCommunities();
+  const [creating, setCreating] = useState(false);
+
+  return (
+    <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
+      <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 30 }}>
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Кружки авторов · {communities.length}</div>
+          <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Сообщества</h1>
+        </div>
+        <button className="btn btn-primary" onClick={() => setCreating(true)}><Icon name="plus" size={16} />Создать сообщество</button>
+      </div>
+
+      {creating && <CommunityCreate user={user} onClose={() => setCreating(false)}
+        onCreate={(c) => { const made = create(c); setCreating(false); go('community', { communityId: made.id }); }} go={go} />}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 24 }}>
+        {communities.map(c => (
+          <CommunityCard key={c.id} c={c} joined={joined.includes(c.id)}
+            onToggle={() => toggleJoin(c.id)} onOpen={() => go('community', { communityId: c.id })} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* форма создания сообщества */
+function CommunityCreate({ user, onClose, onCreate, go }) {
+  const { TAGS } = window.WYRM;
+  const [name, setName] = useState('');
+  const [blurb, setBlurb] = useState('');
+  const [tags, setTags] = useState([]);
+  const [hue, setHue] = useState(28);
+  const allTags = Object.keys(TAGS);
+  const toggleTag = (t) => setTags(ts => ts.includes(t) ? ts.filter(x => x !== t) : (ts.length < 3 ? [...ts, t] : ts));
+
+  if (!user) {
+    return (
+      <div className="card" style={{ padding: '22px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 30 }}>
+        <span style={{ color: 'var(--ink-2)' }}>Чтобы основать сообщество, нужно войти.</span>
+        <button className="btn btn-primary btn-sm" onClick={() => go('landing')}>Войти</button>
+      </div>
+    );
+  }
+  return (
+    <div className="card framed" style={{ padding: 'clamp(22px,3vw,34px)', marginBottom: 34 }}>
+      <div className="eyebrow" style={{ marginBottom: 18 }}>Новое сообщество</div>
+      <div className="compose-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 280px', gap: 28 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div>
+            <label className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-2)', display: 'block', marginBottom: 8, letterSpacing: '.1em' }}>НАЗВАНИЕ</label>
+            <input className="compose-input" value={name} onChange={e => setName(e.target.value)} placeholder="Гильдия Пепла" style={{ width: '100%', fontSize: '1.2rem' }} />
+          </div>
+          <div>
+            <label className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-2)', display: 'block', marginBottom: 8, letterSpacing: '.1em' }}>О ЧЁМ</label>
+            <textarea className="compose-input" value={blurb} onChange={e => setBlurb(e.target.value)} rows={3} placeholder="Истории, темы, дух сообщества…" style={{ width: '100%', resize: 'vertical' }} />
+          </div>
+          <div>
+            <label className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-2)', display: 'block', marginBottom: 8, letterSpacing: '.1em' }}>НАСТРОЕНИЕ · до 3</label>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+              {allTags.map(t => <Tag key={t} id={t} asButton active={tags.includes(t)} onClick={() => toggleTag(t)} />)}
+            </div>
+          </div>
+          <div>
+            <label className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-2)', display: 'block', marginBottom: 8, letterSpacing: '.1em' }}>ЦВЕТ ОБЛОЖКИ</label>
+            <input type="range" min="0" max="340" step="20" value={hue} onChange={e => setHue(+e.target.value)} className="range" style={{ width: '100%' }} />
+          </div>
+        </div>
+
+        <aside style={{ position: 'sticky', top: 90, alignSelf: 'start' }}>
+          <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>ПРЕДПРОСМОТР</div>
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <div style={{ height: 80, position: 'relative', background: `linear-gradient(135deg, oklch(0.6 0.13 ${hue} / .35), oklch(0.5 0.1 ${(hue + 40) % 360} / .15))`, borderBottom: 'var(--rule-style)' }}>
+              <span className="display" style={{ position: 'absolute', left: 14, bottom: 10, fontSize: '1.25rem' }}>{name || 'Без названия'}</span>
+            </div>
+            <div style={{ padding: '14px 16px' }}>
+              <p style={{ color: 'var(--ink-2)', fontSize: '.84rem', minHeight: 40 }}>{blurb || 'Описание появится здесь.'}</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>{tags.map(t => <Tag key={t} id={t} />)}</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+            <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ flex: 1, justifyContent: 'center' }}>Отмена</button>
+            <button className="btn btn-primary btn-sm" disabled={!name.trim()} style={{ flex: 1, justifyContent: 'center' }}
+              onClick={() => onCreate({ name: name.trim(), blurb: blurb.trim() || 'Новое сообщество авторов.', tags, hue, owner: user.handle || user.name })}>
+              Основать
+            </button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- СТРАНИЦА СООБЩЕСТВА ---------------- */
+function CommunityDetail({ go, ctx, user }) {
+  const ref = useReveal();
+  const { communities, joined, toggleJoin } = useCommunities();
+  const { posts, addPost, reacts, toggleReact } = useFeed();
+  const { STORIES } = window.WYRM;
+  const c = communities.find(x => x.id === ctx.communityId) || communities[0];
+  if (!c) return null;
+  const isJoined = joined.includes(c.id);
+  const stories = STORIES.filter(s => (c.stories || []).includes(s.id));
+  const feed = posts.filter(p => p.community === c.id || (p.ref && (c.stories || []).includes(p.ref.story)));
+
+  return (
+    <div className="view" ref={ref}>
+      {/* баннер */}
+      <div style={{ height: 'clamp(160px,26vh,260px)', position: 'relative', borderBottom: 'var(--rule-style)', overflow: 'hidden',
+        background: `linear-gradient(135deg, oklch(0.55 0.14 ${c.hue} / .4), oklch(0.45 0.1 ${(c.hue + 40) % 360} / .18))` }}>
+        <span style={{ position: 'absolute', inset: 0, background: `radial-gradient(50% 90% at 18% 0%, oklch(0.7 0.15 ${c.hue} / .3), transparent 70%)` }} />
+      </div>
+
+      <div className="wrap" style={{ paddingBottom: 100, marginTop: -56, position: 'relative' }}>
+        <button className="nav-link" onClick={() => go('communities')} style={{ marginBottom: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="arrowL" size={14} />Все сообщества
+        </button>
+        <div className="card framed" style={{ padding: 'clamp(22px,3vw,34px)', marginBottom: 34 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 18, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3.4rem)', marginBottom: 12 }}>{c.name}</h1>
+              <p style={{ color: 'var(--ink-2)', maxWidth: '52ch', marginBottom: 16 }}>{c.blurb}</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>{(c.tags || []).map(t => <Tag key={t} id={t} />)}</div>
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                {[['Участников', (c.members + (isJoined ? 1 : 0)).toLocaleString('ru')], ['Историй', stories.length], ['Основатель', '@' + c.owner]].map(([k, v]) => (
+                  <div key={k}><div className="display" style={{ fontSize: '1.5rem' }}>{v}</div><div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{k}</div></div>
+                ))}
+              </div>
+            </div>
+            <button className={'btn ' + (isJoined ? 'btn-ghost' : 'btn-primary')} onClick={() => toggleJoin(c.id)}>
+              {isJoined ? <React.Fragment><Icon name="check" size={15} />Вы участник</React.Fragment> : <React.Fragment><Icon name="plus" size={15} />Вступить</React.Fragment>}
+            </button>
+          </div>
+        </div>
+
+        {/* истории сообщества */}
+        {stories.length > 0 && (
+          <section style={{ marginBottom: 40 }}>
+            <h2 className="display" style={{ fontSize: '1.6rem', marginBottom: 16, borderTop: 'var(--rule-style)', paddingTop: 18 }}>Истории сообщества</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 20 }}>
+              {stories.map(s => (
+                <button key={s.id} className="story-card card" onClick={() => go('reader', { story: s.id })} style={{ padding: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <h3 className="display" style={{ fontSize: '1.2rem' }}>{s.title}</h3>
+                  <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>@{s.author}</span>
+                  <p style={{ color: 'var(--ink-2)', fontSize: '.86rem' }}>{s.synopsis}</p>
+                  <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 'auto' }}><Icon name="branch" size={12} />{s.branches} ветвей</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* обсуждения сообщества */}
+        <section>
+          <h2 className="display" style={{ fontSize: '1.6rem', marginBottom: 16, borderTop: 'var(--rule-style)', paddingTop: 18 }}>Обсуждения</h2>
+          <FeedComposer user={user} onPost={(p) => addPost({ ...p, community: c.id })} go={go}
+            placeholder={'Написать в «' + c.name + '»…'} defaultKind="discuss" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {feed.length === 0
+              ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '30px 0' }}>Будь первым, кто начнёт разговор здесь.</p>
+              : feed.map(p => <PostCard key={p.id} post={p} reacts={reacts} onReact={toggleReact} go={go} />)}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate });
+
 /* ╔══ 14 · App shell ══╗ */
 /* ============================================================
    WYRM — App shell: routing, theme-worlds, customization
@@ -2277,7 +2705,7 @@ function App() {
 
   const go = (r, payload) => { if (payload) setCtx(c => ({ ...c, ...payload })); setRoute(r); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
-  const NAV = [['landing', 'Главная'], ['catalog', 'Каталог'], ['reader', 'Древо']];
+  const NAV = [['landing', 'Главная'], ['feed', 'Лента'], ['catalog', 'Каталог'], ['communities', 'Сообщества'], ['reader', 'Древо']];
   const STUDIO = [
     ['merge', '01 · Слияние', 'branch'],
     ['lore', '02 · Кодекс мира', 'eye'],
@@ -2332,6 +2760,9 @@ function App() {
         {route === 'room' && <WritersRoom go={go} />}
         {route === 'cut' && <ReadersCut go={go} />}
         {route === 'plugins' && <PluginsScreen state={plugins} toggle={togglePlugin} customs={customs} addCustom={addCustom} go={go} />}
+        {route === 'feed' && <Feed go={go} user={user} />}
+        {route === 'communities' && <Communities go={go} user={user} />}
+        {route === 'community' && <CommunityDetail go={go} ctx={ctx} user={user} />}
       </main>
 
       <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18, position: 'relative', zIndex: 1 }}>
@@ -2491,5 +2922,8 @@ function Field({ label, hint, children }) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// Cache the root on window so HMR re-runs reuse it instead of calling
+// createRoot twice on the same container (dev-only warning otherwise).
+const _wyrmRoot = (window.__wyrmRoot ||= ReactDOM.createRoot(document.getElementById('root')));
+_wyrmRoot.render(<App />);
 
