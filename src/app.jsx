@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import * as store from './lib/store.js'
 
 // React/ReactDOM are referenced by name throughout the modules below.
 window.React = React; window.ReactDOM = ReactDOM;
@@ -2037,14 +2038,23 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
   const [pass, setPass] = useState('');
   const reg = mode === 'register';
   const valid = email.includes('@') && pass.length >= 4 && (!reg || name.trim());
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e && e.preventDefault();
-    if (!valid) return;
-    const display = reg ? name.trim() : email.split('@')[0];
-    onAuth({ name: display, email, handle: display.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '_') });
+    if (!valid || busy) return;
+    setBusy(true); setErr('');
+    try {
+      const u = reg ? await store.signUp(email, pass, name.trim()) : await store.signIn(email, pass);
+      onAuth(u);
+    } catch (ex) { setErr(ex.message || 'Не удалось войти'); }
+    setBusy(false);
   };
-  const social = (prov) => onAuth({ name: prov === 'vk' ? 'Гость ВК' : 'Автор', email: prov + '@wyrm', handle: prov + '_user' });
+  const social = (prov) => {
+    if (store.enabled) { setErr('Соцвход пока не настроен — войдите по почте'); return; }
+    onAuth({ name: prov === 'vk' ? 'Гость ВК' : 'Автор', email: prov + '@wyrm', handle: prov + '_user' });
+  };
 
   return (
     <div className="auth-overlay" data-open={open} onClick={onClose}>
@@ -2081,9 +2091,10 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
             <span className="mono">Пароль</span>
             <input className="auth-input" type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" />
           </label>
-          <button type="submit" className="btn btn-primary" disabled={!valid} style={{ justifyContent: 'center', marginTop: 6, opacity: valid ? 1 : .5 }}>
-            {reg ? 'Создать аккаунт' : 'Войти'}<Icon name="arrow" size={15} />
+          <button type="submit" className="btn btn-primary" disabled={!valid || busy} style={{ justifyContent: 'center', marginTop: 6, opacity: valid && !busy ? 1 : .5 }}>
+            {busy ? 'Минуту…' : (reg ? 'Создать аккаунт' : 'Войти')}<Icon name="arrow" size={15} />
           </button>
+          {err && <p className="mono" style={{ fontSize: '.56rem', color: 'oklch(0.65 0.18 25)', textAlign: 'center' }}>{err}</p>}
         </form>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0' }}>
@@ -2292,61 +2303,29 @@ const FEED_KINDS = {
   post:    { icon: 'quill', label: 'запись' },
 };
 
-/* затравка ленты (минуты «назад» превращаются в ts при загрузке) */
-const FEED_SEED = [
-  { id: 'f1', author: 'grimwarden', kind: 'branch', ago: 22,  community: 'ashes-guild',
-    text: 'Открыл ветвь «Корона из костей»: а что, если Кейра не простит Аркадию? Город заслужил огонь — и я дал его городу полной мерой.',
-    ref: { story: 'ashes', storyTitle: 'Пепел Аркадии', node: 'B1' }, tags: ['horror', 'politics'], reacts: { flame: 34, star: 11 } },
-  { id: 'f2', author: 'mara.q', kind: 'vote', ago: 64, community: 'ashes-guild',
-    text: 'Голосую за «Цитадель молчания» в канон. Сцена, где Архонт называет цену — лучшее, что случилось с этим древом.',
-    ref: { story: 'ashes', storyTitle: 'Пепел Аркадии', node: 'A1a' }, tags: ['redemption'], reacts: { flame: 51, star: 28 } },
-  { id: 'f3', author: 'lune_v', kind: 'post', ago: 140, community: 'soft-endings',
-    text: 'В «Стеклянном саду» добавила оранжерею воспоминаний бабушки. Каждый цветок — чужая жизнь, и один из них наконец зацвёл.',
-    ref: { story: 'glass', storyTitle: 'Стеклянный сад', node: null }, tags: ['slow-burn', 'tragedy'], reacts: { flame: 19, star: 7 } },
-  { id: 'f4', author: 'cogsmith', kind: 'discuss', ago: 300, community: 'machine-gods',
-    text: 'Спор недели: если боги — инженеры, то молитва это запрос на обслуживание? Накидайте аргументов, готовлю главу-диспут.',
-    ref: { story: 'gears', storyTitle: 'Шестерни Вавилона', node: null }, tags: ['politics'], reacts: { flame: 42, star: 9 } },
-  { id: 'f5', author: 'jest_r', kind: 'branch', ago: 600, community: null,
-    text: 'Гильдия неудачников снова спасла мир. Случайно. Ветвь, где они даже не заметили, что это сделали — самая смешная из всех.',
-    ref: { story: 'comedy', storyTitle: 'Гильдия неудачников', node: null }, tags: ['comedy', 'happy-end'], reacts: { flame: 88, star: 40 } },
-  { id: 'f6', author: 'tide.witch', kind: 'post', ago: 1440, community: 'salt-circle',
-    text: 'Деревня вытащила из сетей не рыбу, а спящее божество. Кто хочет писать пробуждение — оставляю развилку открытой.',
-    ref: { story: 'salt', storyTitle: 'Соль и пророчество', node: null }, tags: ['horror', 'dark-fantasy'], reacts: { flame: 27, star: 15 } },
-];
-
-/* затравка сообществ */
-const COMMUNITIES_SEED = [
-  { id: 'ashes-guild', name: 'Гильдия Пепла', blurb: 'Канон и ереси «Пепла Аркадии». Спорим о судьбе Кейры до хрипоты и плетём ветви до рассвета.', tags: ['dark-fantasy', 'war'], members: 312, stories: ['ashes'], hue: 28, owner: 'eira_noct' },
-  { id: 'soft-endings', name: 'Тихие финалы', blurb: 'Для тех, кто верит в счастливый конец даже для драконов. Медленно, тепло, без лишней крови.', tags: ['happy-end', 'romance', 'slow-burn'], members: 148, stories: ['glass', 'comedy'], hue: 150, owner: 'lune_v' },
-  { id: 'machine-gods', name: 'Боги-инженеры', blurb: 'Стимпанк, политика и теология машин. Вселенные «Шестерней Вавилона» и «Тысячи корон».', tags: ['politics', 'war'], members: 97, stories: ['gears', 'crown'], hue: 240, owner: 'cogsmith' },
-  { id: 'salt-circle', name: 'Соляной круг', blurb: 'Морской хоррор и пробуждённые божества. Не читать в одиночестве после полуночи.', tags: ['horror', 'dark-fantasy'], members: 64, stories: ['salt'], hue: 200, owner: 'tide.witch' },
-];
-
-/* ---- общий стейт ленты: затравка + пользовательские посты + реакции ---- */
+/* ---- общий стейт ленты через единый слой данных (store) ---- */
 function useFeed() {
-  const [posts, setPosts] = useState(() => {
-    const seeded = FEED_SEED.map(p => ({ ...p, ts: Date.now() - p.ago * 60000 }));
-    const mine = wyrmLoad('wyrm.feed', []);
-    return [...mine, ...seeded];
-  });
-  const [reacts, setReacts] = useState(() => wyrmLoad('wyrm.reacts', {}));
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let on = true;
+    store.listPosts().then(p => { if (on) { setPosts(p); setLoading(false); } });
+    return () => { on = false; };
+  }, []);
 
-  const addPost = (p) => {
-    const post = { id: 'u' + Date.now(), ts: Date.now(), reacts: { flame: 0, star: 0 }, ...p };
-    setPosts(list => [post, ...list]);
-    const mine = wyrmLoad('wyrm.feed', []);
-    wyrmSave('wyrm.feed', [post, ...mine]);
-    return post;
+  const addPost = async (p) => { const np = await store.addPost(p); setPosts(l => [np, ...l]); return np; };
+  const repostPost = async (post, author) => { const np = await store.repost(post, author); setPosts(l => [np, ...l]); return np; };
+
+  // optimistic like/save toggle
+  const flip = (p, kind) => kind === 'save'
+    ? { ...p, savedByMe: !p.savedByMe, saveCount: p.saveCount + (p.savedByMe ? -1 : 1) }
+    : { ...p, likedByMe: !p.likedByMe, likeCount: p.likeCount + (p.likedByMe ? -1 : 1) };
+  const toggleReact = async (id, kind) => {
+    setPosts(l => l.map(p => p.id === id ? flip(p, kind) : p));
+    try { await store.toggleReact(id, kind); }
+    catch (e) { setPosts(l => l.map(p => p.id === id ? flip(p, kind) : p)); } // revert
   };
-  const toggleReact = (id, key) => {
-    setReacts(r => {
-      const cur = r[id] || {};
-      const next = { ...r, [id]: { ...cur, [key]: !cur[key] } };
-      wyrmSave('wyrm.reacts', next);
-      return next;
-    });
-  };
-  return { posts, addPost, reacts, toggleReact };
+  return { posts, loading, addPost, repostPost, toggleReact };
 }
 
 /* поле ввода нового поста */
@@ -2389,13 +2368,32 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
   );
 }
 
-/* карточка поста ленты */
-function PostCard({ post, reacts, onReact, go }) {
+/* карточка поста ленты — лайк / репост / комментарии / сохранить (единая модель) */
+function PostCard({ post, user, onReact, onRepost, go }) {
   const k = FEED_KINDS[post.kind] || FEED_KINDS.post;
-  const mine = reacts[post.id] || {};
-  const count = (base, on) => (base || 0) + (on ? 1 : 0);
+  const [openC, setOpenC] = useState(false);
+  const [comments, setComments] = useState(null);
+  const [ctext, setCtext] = useState('');
+  const [reposted, setReposted] = useState(false);
+
+  const toggleComments = async () => {
+    const next = !openC; setOpenC(next);
+    if (next && comments == null) setComments(await store.listComments(post.id));
+  };
+  const submitComment = async () => {
+    const t = ctext.trim(); if (!t || !user) return;
+    const cm = await store.addComment(post.id, t, user.handle || user.name);
+    setComments(c => [...(c || []), cm]); setCtext('');
+  };
+  const doRepost = async () => {
+    if (!user || reposted) return;
+    await onRepost(post); setReposted(true);
+  };
+  const cCount = comments ? comments.length : post.commentCount;
+
   return (
     <article className="card reveal" style={{ padding: '18px 20px' }}>
+      {post.repostOf && <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon name="fork" size={10} />репост</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <Avatar name={post.author} size={34} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -2424,14 +2422,45 @@ function PostCard({ post, reacts, onReact, go }) {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>{post.tags.map(t => <Tag key={t} id={t} />)}</div>
       )}
 
-      <div style={{ display: 'flex', gap: 6, borderTop: 'var(--rule-style)', paddingTop: 12 }}>
-        <button className="tag tag-btn" data-active={!!mine.flame} onClick={() => onReact(post.id, 'flame')}>
-          <Icon name="flame" size={12} />{count(post.reacts && post.reacts.flame, mine.flame)}
+      <div style={{ display: 'flex', gap: 6, borderTop: 'var(--rule-style)', paddingTop: 12, flexWrap: 'wrap' }}>
+        <button className="tag tag-btn" data-active={post.likedByMe} onClick={() => onReact(post.id, 'like')} title="Нравится">
+          <Icon name="flame" size={12} />{post.likeCount}
         </button>
-        <button className="tag tag-btn" data-active={!!mine.star} onClick={() => onReact(post.id, 'star')}>
-          <Icon name="star" size={12} />{count(post.reacts && post.reacts.star, mine.star)}
+        <button className="tag tag-btn" data-active={openC} onClick={toggleComments} title="Комментарии">
+          <Icon name="users" size={12} />{cCount}
+        </button>
+        <button className="tag tag-btn" data-active={reposted} onClick={doRepost} title="Репост">
+          <Icon name="fork" size={12} />{post.repostCount + (reposted ? 1 : 0)}
+        </button>
+        <button className="tag tag-btn" data-active={post.savedByMe} onClick={() => onReact(post.id, 'save')} title="В закладки" style={{ marginLeft: 'auto' }}>
+          <Icon name="star" size={12} />{post.saveCount}
         </button>
       </div>
+
+      {openC && (
+        <div style={{ marginTop: 14, borderTop: 'var(--rule-style)', paddingTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {(comments || []).map(cm => (
+            <div key={cm.id} style={{ display: 'flex', gap: 9 }}>
+              <Avatar name={cm.author} size={26} />
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                  <span style={{ fontWeight: 600, fontSize: '.84rem' }}>@{cm.author}</span>
+                  <span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{timeAgo(cm.ts)}</span>
+                </div>
+                <p style={{ color: 'var(--ink-2)', fontSize: '.9rem', lineHeight: 1.5 }}>{cm.text}</p>
+              </div>
+            </div>
+          ))}
+          {comments && comments.length === 0 && <p className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>Комментариев пока нет.</p>}
+          {user
+            ? <div style={{ display: 'flex', gap: 8 }}>
+                <input className="compose-input" value={ctext} onChange={e => setCtext(e.target.value)} placeholder="Написать комментарий…"
+                  onKeyDown={e => { if (e.key === 'Enter') submitComment(); }} style={{ flex: 1, padding: '8px 12px' }} />
+                <button className="btn btn-primary btn-sm" onClick={submitComment} disabled={!ctext.trim()}>Ответить</button>
+              </div>
+            : <p className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>Войди, чтобы комментировать.</p>}
+        </div>
+      )}
     </article>
   );
 }
@@ -2559,8 +2588,9 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
 /* ---------------- ЛЕНТА ---------------- */
 function Feed({ go, user }) {
   const ref = useReveal();
-  const { posts, addPost, reacts, toggleReact } = useFeed();
+  const { posts, addPost, repostPost, toggleReact } = useFeed();
   const [filter, setFilter] = useState('all');
+  const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
   const kinds = [['all', 'Всё'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
   const list = posts.filter(p => filter === 'all' || p.kind === filter);
 
@@ -2582,36 +2612,35 @@ function Feed({ go, user }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {list.length === 0
           ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>Пока тут тихо. Напиши первым.</p>
-          : list.map(p => <PostCard key={p.id} post={p} reacts={reacts} onReact={toggleReact} go={go} />)}
+          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} go={go} />)}
       </div>
     </div>
   );
 }
 
-/* ---- членство в сообществах ---- */
+/* ---- членство в сообществах через store ---- */
 function useCommunities() {
-  const [communities, setCommunities] = useState(() => {
-    const mine = wyrmLoad('wyrm.communities', []);
-    return [...mine, ...COMMUNITIES_SEED];
-  });
-  const [joined, setJoined] = useState(() => wyrmLoad('wyrm.memberships', []));
+  const [communities, setCommunities] = useState([]);
+  const [joined, setJoined] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let on = true;
+    store.listCommunities().then(({ communities, joined }) => { if (on) { setCommunities(communities); setJoined(joined); setLoading(false); } });
+    return () => { on = false; };
+  }, []);
 
-  const create = (c) => {
-    const community = { id: 'c' + Date.now(), members: 1, stories: [], ...c };
+  const create = async (c, owner) => {
+    const community = await store.createCommunity(c, owner);
     setCommunities(list => [community, ...list]);
-    const mine = wyrmLoad('wyrm.communities', []);
-    wyrmSave('wyrm.communities', [community, ...mine]);
-    setJoined(j => { const next = [...j, community.id]; wyrmSave('wyrm.memberships', next); return next; });
+    setJoined(j => [...j, community.id]);
     return community;
   };
-  const toggleJoin = (id) => {
-    setJoined(j => {
-      const next = j.includes(id) ? j.filter(x => x !== id) : [...j, id];
-      wyrmSave('wyrm.memberships', next);
-      return next;
-    });
+  const toggleJoin = async (id) => {
+    const isIn = joined.includes(id);
+    setJoined(j => isIn ? j.filter(x => x !== id) : [...j, id]); // optimistic
+    try { await store.toggleJoin(id); } catch (e) { setJoined(j => isIn ? [...j, id] : j.filter(x => x !== id)); }
   };
-  return { communities, joined, create, toggleJoin };
+  return { communities, joined, loading, create, toggleJoin };
 }
 
 /* карточка сообщества в сетке */
@@ -2657,7 +2686,7 @@ function Communities({ go, user }) {
       </div>
 
       {creating && <CommunityCreate user={user} onClose={() => setCreating(false)}
-        onCreate={(c) => { const made = create(c); setCreating(false); go('community', { communityId: made.id }); }} go={go} />}
+        onCreate={async (c) => { const made = await create(c, c.owner); setCreating(false); go('community', { communityId: made.id }); }} go={go} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 24 }}>
         {communities.map(c => (
@@ -2738,7 +2767,8 @@ function CommunityCreate({ user, onClose, onCreate, go }) {
 function CommunityDetail({ go, ctx, user }) {
   const ref = useReveal();
   const { communities, joined, toggleJoin } = useCommunities();
-  const { posts, addPost, reacts, toggleReact } = useFeed();
+  const { posts, addPost, repostPost, toggleReact } = useFeed();
+  const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
   const { STORIES } = window.WYRM;
   const c = communities.find(x => x.id === ctx.communityId) || communities[0];
   if (!c) return null;
@@ -2801,7 +2831,7 @@ function CommunityDetail({ go, ctx, user }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             {feed.length === 0
               ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '30px 0' }}>Будь первым, кто начнёт разговор здесь.</p>
-              : feed.map(p => <PostCard key={p.id} post={p} reacts={reacts} onReact={toggleReact} go={go} />)}
+              : feed.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} go={go} />)}
           </div>
         </section>
       </div>
@@ -2863,6 +2893,8 @@ function App() {
     if (user) localStorage.setItem('wyrm.user', JSON.stringify(user));
     else localStorage.removeItem('wyrm.user');
   }, [user]);
+  // Restore an existing session (real Supabase session, or the cached user).
+  useEffect(() => { store.currentUser().then(u => { if (u) setUser(u); }); }, []);
   const finishIntro = () => { try { localStorage.setItem('wyrm.introSeen', '1'); } catch (e) {} setShowIntro(false); };
   const doAuth = (u) => { setUser(u); setAuthOpen(false); };
   const openAuth = (mode) => { setAuthMode(mode || 'login'); setAuthOpen(true); };
@@ -2915,7 +2947,7 @@ function App() {
           </button>
           <button className="icon-btn" title="Настройки" onClick={() => setSettingsOpen(true)}><Icon name="sliders" size={17} /></button>
           {user
-            ? <AccountMenu user={user} onLogout={() => setUser(null)} go={go} />
+            ? <AccountMenu user={user} onLogout={async () => { await store.signOut(); setUser(null); }} go={go} />
             : <button className="btn btn-primary btn-sm" onClick={() => openAuth('login')}>Войти</button>}
         </nav>
       </header>
