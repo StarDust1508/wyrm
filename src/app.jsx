@@ -171,6 +171,12 @@ window.React = React; window.ReactDOM = ReactDOM;
     ],
   };
 
+  // Книги, созданные пользователем в прошлых сессиях, тоже попадают в каталог.
+  try {
+    const us = JSON.parse(localStorage.getItem('wyrm.stories'));
+    if (Array.isArray(us)) { const have = new Set(STORIES.map(s => s.id)); us.forEach(s => { if (s && s.id && !have.has(s.id)) STORIES.push(s); }); }
+  } catch (e) {}
+
   // nodesFor(storyId): seed tree + branches this reader published (per story).
   function nodesFor(storyId) {
     const base = storyId === 'ashes' ? NODES : (STORY_TREES[storyId] || []);
@@ -725,6 +731,16 @@ function Reader({ go, ctx, setCtx }) {
       {/* story header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 18, borderBottom: 'var(--rule-style)', paddingBottom: 22, marginBottom: 22 }}>
         <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', letterSpacing: '.14em' }}>КНИГА</span>
+            <select value={story.id} onChange={e => go('reader', { story: e.target.value, node: null })}
+              className="mono" style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '5px 8px', fontSize: '.72rem', maxWidth: '75vw', cursor: 'pointer' }}>
+              {STORIES.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+            </select>
+            <button className="mono path-crumb" onClick={() => go('compose', { newBook: true, forkFrom: null })} style={{ fontSize: '.58rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="plus" size={12} />новая книга
+            </button>
+          </div>
           <div className="eyebrow" style={{ marginBottom: 12 }}>Древо истории · @{story.author}</div>
           <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3.6rem)', marginBottom: 10 }}>{story.title}</h1>
           <p style={{ color: 'var(--ink-2)', maxWidth: '60ch' }}>{story.synopsis}</p>
@@ -854,11 +870,43 @@ function Compose({ go, ctx, setCtx }) {
   const [chars, setChars] = useState({ ...parent.chars });
   const [done, setDone] = useState(false);
   const [newId, setNewId] = useState(null);
+  const [mode, setMode] = useState(ctx.forkFrom ? 'fork' : 'newbook'); // 'newbook' | 'fork'
+  const [synopsis, setSynopsis] = useState('');
+  const [bookId, setBookId] = useState(null);
   const plain = htmlToText(body);
   const words = plain ? plain.split(/\s+/).length : 0;
   const allTags = Object.keys(TAGS);
 
-  const toggleTag = t => setTags(s => s.includes(t) ? s.filter(x => x !== t) : [...s, t]);
+  const toggleTag = t => setTags(s => s.includes(t) ? s.filter(x => x !== t) : (s.length < 4 ? [...s, t] : s));
+  const slug = (s) => (s || '').toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kniga';
+  const resetForm = () => { setDone(false); setTitle(''); setBody(''); setSynopsis(''); setNewId(null); setBookId(null); };
+
+  // Start a brand-new book: create the story + its root chapter, persist both.
+  const publishBook = () => {
+    const text = htmlToText(body);
+    if (!title.trim() || !text) return;
+    const me = wyrmLoad('wyrm.user', null);
+    const author = (me && (me.handle || me.name)) || 'аноним';
+    const id = slug(title) + '-' + Date.now().toString(36).slice(-4);
+    const story = { id, title: title.trim(), author, synopsis: synopsis.trim() || (text.length > 140 ? text.slice(0, 140) + '…' : text),
+      contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false };
+    const root = { id: id + '-root', parent: null, story: id, title: 'Глава 1', author,
+      canon: true, score: 0.5, votes: 0, words, tags: story.tags,
+      excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, html: cleanHtml(body), chars: {} };
+    window.WYRM.STORIES.push(story);
+    wyrmSave('wyrm.stories', [...wyrmLoad('wyrm.stories', []), story]);
+    wyrmSave('wyrm.nodes', [...wyrmLoad('wyrm.nodes', []), root]);
+    setBookId(id); setNewId(root.id); setDone(true);
+  };
+
+  const ModeToggle = () => (
+    <div style={{ display: 'flex', gap: 4, padding: 3, border: '1px solid var(--line)', borderRadius: 4, marginBottom: 22, width: 'fit-content' }}>
+      {[['newbook', 'Новая книга'], ['fork', 'Дописать существующую']].map(([k, l]) => (
+        <button key={k} className="btn btn-sm" onClick={() => setMode(k)}
+          style={{ background: mode === k ? 'var(--accent)' : 'transparent', color: mode === k ? 'var(--accent-ink)' : 'var(--ink-2)' }}>{l}</button>
+      ))}
+    </div>
+  );
 
   // Publish for real: build a branch node, graft it onto the tree, persist it.
   const publish = () => {
@@ -886,22 +934,62 @@ function Compose({ go, ctx, setCtx }) {
 
   if (done) return (
     <div className="view wrap" style={{ padding: '12vh 0', textAlign: 'center', maxWidth: 620, margin: '0 auto' }}>
-      <div style={{ color: 'var(--gold)' }}><Icon name="branch" size={34} /></div>
-      <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3rem)', margin: '16px 0 14px' }}>Ветка опубликована</h1>
+      <div style={{ color: 'var(--gold)' }}><Icon name={bookId ? 'crown' : 'branch'} size={34} /></div>
+      <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3rem)', margin: '16px 0 14px' }}>{bookId ? 'Книга создана' : 'Ветка опубликована'}</h1>
       <p className="serif-italic" style={{ color: 'var(--ink-2)', fontSize: '1.15rem', marginBottom: 8 }}>
-        «{title || 'Без названия'}» теперь растёт от главы «{parent.title}».
+        {bookId
+          ? `«${title || 'Без названия'}» опубликована. Первая глава положила начало древу — сообщество может ветвить дальше.`
+          : `«${title || 'Без названия'}» теперь растёт от главы «${parent.title}».`}
       </p>
-      <p style={{ color: 'var(--ink-3)', marginBottom: 30 }}>Сообщество начнёт голосовать за неё. Наберёт больше всех — станет каноном.</p>
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-        <button className="btn btn-primary" onClick={() => go('reader', { node: newId || parent.id, story: storyId })}>К древу<Icon name="arrow" size={15} /></button>
-        <button className="btn btn-ghost" onClick={() => { setDone(false); setTitle(''); setBody(''); setNewId(null); }}>Ещё ветку</button>
+      {!bookId && <p style={{ color: 'var(--ink-3)', marginBottom: 30 }}>Сообщество начнёт голосовать за неё. Наберёт больше всех — станет каноном.</p>}
+      <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: bookId ? 30 : 0 }}>
+        <button className="btn btn-primary" onClick={() => go('reader', { story: bookId || storyId, node: newId || (parent && parent.id) })}>{bookId ? 'Открыть книгу' : 'К древу'}<Icon name="arrow" size={15} /></button>
+        <button className="btn btn-ghost" onClick={resetForm}>{bookId ? 'Ещё книгу' : 'Ещё ветку'}</button>
+      </div>
+    </div>
+  );
+
+  // ---- режим: своя книга с нуля ----
+  if (mode === 'newbook') return (
+    <div className="view wrap" style={{ padding: 'clamp(26px,4vh,48px) 0 90px' }}>
+      <ModeToggle />
+      <div className="compose-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 28, alignItems: 'start' }}>
+        <div>
+          <div className="eyebrow" style={{ marginBottom: 12, color: 'var(--accent)' }}>Своя книга</div>
+          <h1 className="display" style={{ fontSize: 'clamp(1.9rem,4vw,3rem)', marginBottom: 18 }}>Начни свою историю</h1>
+
+          <input className="compose-input display" value={title} onChange={e => setTitle(e.target.value)} placeholder="Название книги"
+            style={{ width: '100%', fontSize: '1.6rem', background: 'transparent', border: 'none', borderBottom: 'var(--rule-style)', padding: '8px 2px 12px', marginBottom: 16, color: 'var(--ink)', outline: 'none' }} />
+          <textarea className="compose-input" value={synopsis} onChange={e => setSynopsis(e.target.value)} rows={2}
+            placeholder="Краткое описание — о чём книга (необязательно)"
+            style={{ width: '100%', resize: 'vertical', marginBottom: 18 }} />
+
+          <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 8 }}>Первая глава</div>
+          <RichEditor initialHtml={body} onChange={setBody}
+            placeholder="С чего начинается твоя история? Пиши, форматируй или импортируй готовый документ (.docx / .txt)…" />
+          <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginTop: 8 }}>{words} слов · это станет корнем твоего древа</div>
+        </div>
+
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 84 }}>
+          <div className="card" style={{ padding: 18 }}>
+            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Круг жанров книги</div>
+            <GenreWheel selected={tags} onToggle={toggleTag} multi size={236} />
+            {tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>{tags.map(t => <Tag key={t} id={t} />)}</div>}
+          </div>
+          <button className="btn btn-primary" onClick={publishBook} disabled={!title.trim() || !plain}
+            style={{ justifyContent: 'center', opacity: title.trim() && plain ? 1 : .5 }}>
+            <Icon name="crown" size={16} />Опубликовать книгу
+          </button>
+          <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>Книга появится в Каталоге, другие смогут писать в ней ветви</p>
+        </aside>
       </div>
     </div>
   );
 
   return (
     <div className="view wrap" style={{ padding: 'clamp(26px,4vh,48px) 0 90px' }}>
-      <button className="mono path-crumb" onClick={() => go('reader')} style={{ color: 'var(--ink-3)', display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 22 }}><Icon name="arrowL" size={13} />назад к древу</button>
+      <ModeToggle />
+      <button className="mono path-crumb" onClick={() => go('reader', { story: storyId })} style={{ color: 'var(--ink-3)', display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 22 }}><Icon name="arrowL" size={13} />назад к древу</button>
       <div className="compose-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 28, alignItems: 'start' }}>
         {/* editor */}
         <div>
@@ -2479,7 +2567,7 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
 }
 
 /* карточка поста ленты — лайк / репост / комментарии / сохранить (единая модель) */
-function PostCard({ post, user, onReact, onRepost, go }) {
+function PostCard({ post, user, onReact, onRepost, go, communityName }) {
   const k = FEED_KINDS[post.kind] || FEED_KINDS.post;
   const [openC, setOpenC] = useState(false);
   const [comments, setComments] = useState(null);
@@ -2515,6 +2603,12 @@ function PostCard({ post, user, onReact, onRepost, go }) {
           </div>
           <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>{timeAgo(post.ts)}</span>
         </div>
+        {post.community && communityName && (
+          <button onClick={() => go && go('community', { communityId: post.community })}
+            className="tag tag-btn" style={{ fontSize: '.5rem', flex: '0 0 auto' }} title="Перейти в сообщество">
+            <Icon name="users" size={10} />{communityName}
+          </button>
+        )}
       </div>
 
       <p style={{ color: 'var(--ink)', lineHeight: 1.6, marginBottom: post.ref || (post.tags && post.tags.length) ? 14 : 4 }}>{post.text}</p>
@@ -2699,6 +2793,8 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
 function Feed({ go, user }) {
   const ref = useReveal();
   const { posts, addPost, repostPost, toggleReact } = useFeed();
+  const { communities } = useCommunities();
+  const comName = (id) => (communities.find(c => c.id === id) || {}).name;
   const [filter, setFilter] = useState('all');
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
   const kinds = [['all', 'Всё'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
@@ -2722,7 +2818,7 @@ function Feed({ go, user }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {list.length === 0
           ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>Пока тут тихо. Напиши первым.</p>
-          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} go={go} />)}
+          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} go={go} communityName={comName(p.community)} />)}
       </div>
     </div>
   );
