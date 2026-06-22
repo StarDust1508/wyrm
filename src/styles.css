@@ -1168,3 +1168,20 @@ body.zen footer{ opacity:.4; }
 ::-webkit-scrollbar{ width:10px; height:10px; }
 ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:10px; border:3px solid var(--bg); }
 ::-webkit-scrollbar-track{ background:transparent; }
+
+/* ---------- rich editor ---------- */
+.edit-tool{
+  min-width:30px; height:30px; padding:0 8px; border:1px solid var(--line);
+  border-radius:3px; background:var(--bg-3); color:var(--ink-2);
+  font-family:var(--display); font-size:.9rem; cursor:pointer; transition:.2s var(--ease);
+}
+.edit-tool:hover{ border-color:var(--ink-3); color:var(--ink); background:var(--bg-2); }
+.rich-edit:empty:before{ content:attr(data-placeholder); color:var(--ink-3); pointer-events:none; }
+.rich-edit h3{ font-family:var(--display); font-size:1.3rem; font-weight:700; margin:.6em 0 .3em; }
+.rich-edit blockquote, .rich-read blockquote{
+  border-left:2px solid var(--accent); padding-left:14px; margin:.6em 0;
+  color:var(--ink-2); font-style:italic;
+}
+.rich-edit ul, .rich-read ul{ margin:.4em 0 .4em 1.2em; }
+.rich-edit p, .rich-read p{ margin:.5em 0; }
+.rich-read h3{ font-family:var(--display); font-size:1.2rem; font-weight:700; margin:.6em 0 .3em; }

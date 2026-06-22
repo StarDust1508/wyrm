@@ -722,7 +722,9 @@ function Reader({ go, ctx, setCtx }) {
               <Avatar name={node.author} size={22} />
               <span className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-3)' }}>@{node.author} · {node.words} слов</span>
             </div>
-            <p className="serif-italic" style={{ color: 'var(--ink)', fontSize: '1.02rem', lineHeight: 1.6, marginBottom: 16 }}>{node.excerpt}</p>
+            {node.html
+              ? <div className="serif rich-read" style={{ color: 'var(--ink)', fontSize: '1.02rem', lineHeight: 1.6, marginBottom: 16, maxHeight: 320, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: node.html }} />
+              : <p className="serif-italic" style={{ color: 'var(--ink)', fontSize: '1.02rem', lineHeight: 1.6, marginBottom: 16 }}>{node.excerpt}</p>}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>{node.tags.map(t => <Tag key={t} id={t} />)}</div>
 
             <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 6 }}>Канонический рейтинг</div>
@@ -784,16 +786,17 @@ function Compose({ go, ctx, setCtx }) {
   const [chars, setChars] = useState({ ...parent.chars });
   const [done, setDone] = useState(false);
   const [newId, setNewId] = useState(null);
-  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+  const plain = htmlToText(body);
+  const words = plain ? plain.split(/\s+/).length : 0;
   const allTags = Object.keys(TAGS);
 
   const toggleTag = t => setTags(s => s.includes(t) ? s.filter(x => x !== t) : [...s, t]);
 
   // Publish for real: build a branch node, graft it onto the tree, persist it.
   const publish = () => {
-    if (!body.trim()) return;
+    const text = htmlToText(body);
+    if (!text) return;
     const me = wyrmLoad('wyrm.user', null);
-    const text = body.trim();
     const node = {
       id: parent.id + 'x' + Date.now().toString(36).slice(-4),
       parent: parent.id,
@@ -802,6 +805,7 @@ function Compose({ go, ctx, setCtx }) {
       canon: false, score: 0.3, votes: 0, words,
       tags: tags.length ? tags : parent.tags.slice(0, 2),
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text,
+      html: body,
       chars: { ...chars },
     };
     window.WYRM.NODES.push(node);
@@ -844,10 +848,9 @@ function Compose({ go, ctx, setCtx }) {
           <input className="compose-input display" value={title} onChange={e => setTitle(e.target.value)} placeholder="Название твоей главы"
             style={{ width: '100%', fontSize: '1.5rem', background: 'transparent', border: 'none', borderBottom: 'var(--rule-style)', padding: '8px 2px 12px', marginBottom: 18, color: 'var(--ink)', outline: 'none' }} />
 
-          <textarea className="compose-input serif" value={body} onChange={e => setBody(e.target.value)}
-            placeholder="Здесь развилка расходится. Кейра делает другой выбор — и история сворачивает в твою сторону. Пиши…"
-            style={{ width: '100%', minHeight: 320, resize: 'vertical', background: 'var(--bg-2)', border: 'var(--rule-style)', borderRadius: 5, padding: 18, fontSize: '1.05rem', lineHeight: 1.7, color: 'var(--ink)', outline: 'none', fontFamily: 'var(--serif)' }} />
-          <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginTop: 8 }}>{words} слов · автосохранение черновика</div>
+          <RichEditor initialHtml={body} onChange={setBody}
+            placeholder="Здесь развилка расходится. Кейра делает другой выбор — и история сворачивает в твою сторону. Пиши, форматируй или импортируй готовый документ…" />
+          <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginTop: 8 }}>{words} слов · можно импортировать .docx / .txt</div>
         </div>
 
         {/* meta sidebar */}
@@ -874,8 +877,8 @@ function Compose({ go, ctx, setCtx }) {
             </div>
           </div>
 
-          <button className="btn btn-primary" onClick={publish} disabled={!body.trim()}
-            style={{ justifyContent: 'center', opacity: body.trim() ? 1 : .5 }}>
+          <button className="btn btn-primary" onClick={publish} disabled={!plain}
+            style={{ justifyContent: 'center', opacity: plain ? 1 : .5 }}>
             <Icon name="branch" size={16} />Опубликовать ветку
           </button>
           <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>Чужой текст не меняется — создаётся параллельная линия</p>
@@ -2433,6 +2436,79 @@ function PostCard({ post, reacts, onReact, go }) {
   );
 }
 
+/* ---- HTML → плоский текст (для excerpt/счётчика слов) ---- */
+function htmlToText(html) {
+  const d = document.createElement('div');
+  d.innerHTML = html || '';
+  return (d.textContent || '').replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/* ---- редактор главы: форматирование + импорт .txt/.md/.docx ---- */
+function RichEditor({ initialHtml, onChange, placeholder, minHeight = 320 }) {
+  const ref = useRef(null);
+  const fileRef = useRef(null);
+  const [busy, setBusy] = useState('');
+  const emit = () => { if (ref.current) onChange(ref.current.innerHTML); };
+  const exec = (cmd, val) => { document.execCommand(cmd, false, val); if (ref.current) ref.current.focus(); emit(); };
+  // Push external content (e.g. an import) into the editable DOM without
+  // clobbering the caret while the user is typing.
+  useEffect(() => {
+    if (ref.current && initialHtml != null && ref.current.innerHTML !== initialHtml) ref.current.innerHTML = initialHtml;
+  }, [initialHtml]);
+
+  const importFile = async (file) => {
+    if (!file) return;
+    setBusy('Импортирую «' + file.name + '»…');
+    try {
+      let html = '';
+      if (/\.docx$/i.test(file.name)) {
+        const mammoth = await import('mammoth/mammoth.browser.js');
+        const ab = await file.arrayBuffer();
+        const res = await (mammoth.convertToHtml ? mammoth.convertToHtml({ arrayBuffer: ab }) : mammoth.default.convertToHtml({ arrayBuffer: ab }));
+        html = res.value || '';
+      } else {
+        const text = await file.text();
+        html = text.split(/\n{2,}/).map(p => '<p>' + p.replace(/\n/g, '<br>').replace(/[<>]/g, s => ({ '<': '&lt;', '>': '&gt;' }[s])) + '</p>').join('');
+      }
+      if (ref.current) { ref.current.innerHTML = html; emit(); }
+    } catch (e) {
+      setBusy('Не удалось прочитать файл: ' + e.message);
+      return;
+    }
+    setBusy('');
+  };
+
+  const tools = [
+    ['Ж', 'bold', null, { fontWeight: 800 }],
+    ['К', 'italic', null, { fontStyle: 'italic', fontFamily: 'var(--serif)' }],
+    ['H', 'formatBlock', 'H3', { fontWeight: 700 }],
+    ['❝', 'formatBlock', 'BLOCKQUOTE', {}],
+    ['• —', 'insertUnorderedList', null, {}],
+    ['⌫', 'removeFormat', null, {}],
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 10, paddingBottom: 10, borderBottom: 'var(--rule-style)' }}>
+        {tools.map(([label, cmd, val, st]) => (
+          <button key={label} type="button" className="edit-tool" title={cmd}
+            onMouseDown={e => e.preventDefault()} onClick={() => exec(cmd, val)} style={st}>{label}</button>
+        ))}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => fileRef.current && fileRef.current.click()}>
+          <Icon name="arrow" size={13} />Импорт .txt / .docx
+        </button>
+        <input ref={fileRef} type="file" accept=".txt,.md,.markdown,.docx" style={{ display: 'none' }}
+          onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} />
+      </div>
+      <div ref={ref} contentEditable suppressContentEditableWarning className="compose-input serif rich-edit"
+        onInput={emit} data-placeholder={placeholder}
+        style={{ width: '100%', minHeight, background: 'var(--bg-2)', border: 'var(--rule-style)', borderRadius: 5, padding: 18, fontSize: '1.05rem', lineHeight: 1.7, color: 'var(--ink)', outline: 'none', fontFamily: 'var(--serif)', overflowY: 'auto' }} />
+      {busy && <div className="mono" style={{ fontSize: '.56rem', color: 'var(--accent)', marginTop: 8 }}>{busy}</div>}
+    </div>
+  );
+}
+
 /* ---- интерактивный круг жанров (кольцо с секторами) ---- */
 function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
   const { TAGS } = window.WYRM;
@@ -2733,7 +2809,7 @@ function CommunityDetail({ go, ctx, user }) {
   );
 }
 
-Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate, GenreWheel });
+Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate, GenreWheel, RichEditor, htmlToText });
 
 /* ╔══ 14 · App shell ══╗ */
 /* ============================================================
