@@ -124,6 +124,16 @@ window.React = React; window.ReactDOM = ReactDOM;
     { id:'crown', title:'Тысяча малых корон', author:'archivar', synopsis:'Империя распадается на тысячу княжеств. Каждый соавтор пишет за своего наследника.', contributors:104, branches:71, tags:['politics','war','tragedy'], hot:true },
   ];
 
+  // Branches the reader published in earlier sessions live in localStorage;
+  // fold them back into the tree so the story keeps growing across reloads.
+  try {
+    const extra = JSON.parse(localStorage.getItem('wyrm.nodes'));
+    if (Array.isArray(extra)) {
+      const have = new Set(NODES.map(n => n.id));
+      extra.forEach(n => { if (n && n.id && !have.has(n.id)) NODES.push(n); });
+    }
+  } catch (e) {}
+
   window.WYRM = { TAGS, CHARACTERS, NODES, FLAGSHIP, STORIES };
 })();
 
@@ -324,7 +334,7 @@ function ancestorsOf(id, byId) {
 
 function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activeTag }) {
   const nodes = window.WYRM.NODES;
-  const L = useMemo(() => layoutTree(nodes, orientation), [orientation]);
+  const L = useMemo(() => layoutTree(nodes, orientation), [orientation, nodes.length]);
   const [hover, setHover] = useStateT(null);
   const scrollRef = useRefT(null);
   const NODE_W = 196;
@@ -637,8 +647,9 @@ function Reader({ go, ctx, setCtx }) {
   const [sel, setSel] = useState(ctx.node || 'A1a');
   const [orient, setOrient] = useState('vertical');
   const [filter, setFilter] = useState(null);
-  const [voted, setVoted] = useState({});
+  const [voted, setVoted] = useState(() => wyrmLoad('wyrm.votes', {}));
   const node = byId[sel] || byId['root'];
+  const castVote = (id) => setVoted(v => { const nx = { ...v, [id]: !v[id] }; wyrmSave('wyrm.votes', nx); return nx; });
 
   const path = [...ancestorsOf(sel, byId)].reverse(); // root → sel
   const allTags = [...new Set(NODES.flatMap(n => n.tags))];
@@ -718,7 +729,7 @@ function Reader({ go, ctx, setCtx }) {
             <CanonMeter score={node.score} gold={node.canon} />
 
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setVoted(v => ({ ...v, [sel]: !v[sel] }))}
+              <button className="btn btn-ghost btn-sm" onClick={() => castVote(sel)}
                 style={{ flex: 1, justifyContent: 'center', borderColor: voted[sel] ? 'var(--gold)' : 'var(--line)', color: voted[sel] ? 'var(--gold)' : 'var(--ink)' }}>
                 <Icon name={voted[sel] ? 'check' : 'star'} size={15} />{voted[sel] ? 'Голос за канон' : 'За канон'}
               </button>
@@ -772,10 +783,33 @@ function Compose({ go, ctx, setCtx }) {
   const [tags, setTags] = useState(parent.tags.slice(0, 2));
   const [chars, setChars] = useState({ ...parent.chars });
   const [done, setDone] = useState(false);
+  const [newId, setNewId] = useState(null);
   const words = body.trim() ? body.trim().split(/\s+/).length : 0;
   const allTags = Object.keys(TAGS);
 
   const toggleTag = t => setTags(s => s.includes(t) ? s.filter(x => x !== t) : [...s, t]);
+
+  // Publish for real: build a branch node, graft it onto the tree, persist it.
+  const publish = () => {
+    if (!body.trim()) return;
+    const me = wyrmLoad('wyrm.user', null);
+    const text = body.trim();
+    const node = {
+      id: parent.id + 'x' + Date.now().toString(36).slice(-4),
+      parent: parent.id,
+      title: title.trim() || 'Безымянная ветвь',
+      author: (me && (me.handle || me.name)) || 'аноним',
+      canon: false, score: 0.3, votes: 0, words,
+      tags: tags.length ? tags : parent.tags.slice(0, 2),
+      excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text,
+      chars: { ...chars },
+    };
+    window.WYRM.NODES.push(node);
+    const stored = wyrmLoad('wyrm.nodes', []);
+    wyrmSave('wyrm.nodes', [...stored, node]);
+    setNewId(node.id);
+    setDone(true);
+  };
 
   if (done) return (
     <div className="view wrap" style={{ padding: '12vh 0', textAlign: 'center', maxWidth: 620, margin: '0 auto' }}>
@@ -786,8 +820,8 @@ function Compose({ go, ctx, setCtx }) {
       </p>
       <p style={{ color: 'var(--ink-3)', marginBottom: 30 }}>Сообщество начнёт голосовать за неё. Наберёт больше всех — станет каноном.</p>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-        <button className="btn btn-primary" onClick={() => { setCtx({ ...ctx, node: parent.id }); go('reader'); }}>К древу<Icon name="arrow" size={15} /></button>
-        <button className="btn btn-ghost" onClick={() => { setDone(false); setTitle(''); setBody(''); }}>Ещё ветку</button>
+        <button className="btn btn-primary" onClick={() => go('reader', { node: newId || parent.id })}>К древу<Icon name="arrow" size={15} /></button>
+        <button className="btn btn-ghost" onClick={() => { setDone(false); setTitle(''); setBody(''); setNewId(null); }}>Ещё ветку</button>
       </div>
     </div>
   );
@@ -841,7 +875,7 @@ function Compose({ go, ctx, setCtx }) {
             </div>
           </div>
 
-          <button className="btn btn-primary" onClick={() => setDone(true)} disabled={!body.trim()}
+          <button className="btn btn-primary" onClick={publish} disabled={!body.trim()}
             style={{ justifyContent: 'center', opacity: body.trim() ? 1 : .5 }}>
             <Icon name="branch" size={16} />Опубликовать ветку
           </button>
@@ -1568,6 +1602,28 @@ function ReadersCut({ go }) {
   const diverged = path.filter(id => !CANON_LINE.includes(id)).length;
   const divPct = Math.round(diverged / path.length * 100);
 
+  // Assemble the chosen path into a plain-text book and download it.
+  const downloadCut = () => {
+    const lines = ['ПЕПЕЛ АРКАДИИ — версия читателя', '='.repeat(40), ''];
+    path.forEach((id, i) => {
+      const n = byId[id];
+      lines.push(`Глава ${i + 1}. ${n.title}  (@${n.author})`, '', n.excerpt, '', '— · —', '');
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'wyrm-cut-' + path.join('-') + '.txt';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setExported(true);
+  };
+  // Copy a shareable link encoding the chosen path to the clipboard.
+  const shareCut = () => {
+    const link = location.origin + location.pathname + '#cut=' + path.join('-');
+    if (navigator.clipboard) navigator.clipboard.writeText(link).catch(() => {});
+    setExported(true);
+  };
+
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>
       <div className="reveal" style={{ marginBottom: 18 }}>
@@ -1664,10 +1720,10 @@ function ReadersCut({ go }) {
               </div>
             ) : (
               <React.Fragment>
-                <button className="btn btn-primary" onClick={() => setExported(true)} style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }}>
+                <button className="btn btn-primary" onClick={downloadCut} style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }}>
                   <Icon name="arrow" size={15} />Скачать эл. книгой
                 </button>
-                <button className="btn btn-ghost" onClick={() => setExported(true)} style={{ width: '100%', justifyContent: 'center' }}>
+                <button className="btn btn-ghost" onClick={shareCut} style={{ width: '100%', justifyContent: 'center' }}>
                   <Icon name="users" size={15} />Поделиться версией
                 </button>
                 <p className="mono" style={{ fontSize: '.48rem', color: 'var(--ink-3)', textAlign: 'center', marginTop: 10 }}>каждый собранный путь — новый вход на платформу</p>
