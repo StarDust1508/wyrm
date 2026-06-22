@@ -1,6 +1,15 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import DOMPurify from 'dompurify'
 import * as store from './lib/store.js'
+
+// Strict allowlist sanitizer for chapter HTML (editor + imported .docx).
+// Kills <script>, event handlers, javascript: URLs, styles — anything that
+// could become stored XSS once a chapter is shown to other readers.
+const SAFE_TAGS = ['p', 'br', 'b', 'strong', 'i', 'em', 'u', 'h3', 'blockquote', 'ul', 'ol', 'li'];
+function cleanHtml(html) {
+  return DOMPurify.sanitize(html || '', { ALLOWED_TAGS: SAFE_TAGS, ALLOWED_ATTR: [] });
+}
 
 // React/ReactDOM are referenced by name throughout the modules below.
 window.React = React; window.ReactDOM = ReactDOM;
@@ -777,7 +786,7 @@ function Reader({ go, ctx, setCtx }) {
               <span className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-3)' }}>@{node.author} · {node.words} слов</span>
             </div>
             {node.html
-              ? <div className="serif rich-read" style={{ color: 'var(--ink)', fontSize: '1.02rem', lineHeight: 1.6, marginBottom: 16, maxHeight: 320, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: node.html }} />
+              ? <div className="serif rich-read" style={{ color: 'var(--ink)', fontSize: '1.02rem', lineHeight: 1.6, marginBottom: 16, maxHeight: 320, overflowY: 'auto' }} dangerouslySetInnerHTML={{ __html: cleanHtml(node.html) }} />
               : <p className="serif-italic" style={{ color: 'var(--ink)', fontSize: '1.02rem', lineHeight: 1.6, marginBottom: 16 }}>{node.excerpt}</p>}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>{node.tags.map(t => <Tag key={t} id={t} />)}</div>
 
@@ -863,7 +872,7 @@ function Compose({ go, ctx, setCtx }) {
       canon: false, score: 0.3, votes: 0, words,
       tags: tags.length ? tags : parent.tags.slice(0, 2),
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text,
-      html: body,
+      html: cleanHtml(body),
       chars: { ...chars },
       story: storyId,
     };
@@ -2587,7 +2596,7 @@ function RichEditor({ initialHtml, onChange, placeholder, minHeight = 320 }) {
         const text = await file.text();
         html = text.split(/\n{2,}/).map(p => '<p>' + p.replace(/\n/g, '<br>').replace(/[<>]/g, s => ({ '<': '&lt;', '>': '&gt;' }[s])) + '</p>').join('');
       }
-      if (ref.current) { ref.current.innerHTML = html; emit(); }
+      if (ref.current) { ref.current.innerHTML = cleanHtml(html); emit(); }
     } catch (e) {
       setBusy('Не удалось прочитать файл: ' + e.message);
       return;
