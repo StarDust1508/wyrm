@@ -853,10 +853,9 @@ function Compose({ go, ctx, setCtx }) {
         {/* meta sidebar */}
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 84 }}>
           <div className="card" style={{ padding: 18 }}>
-            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Теги настроения</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {allTags.map(t => <Tag key={t} id={t} asButton active={tags.includes(t)} onClick={() => toggleTag(t)} />)}
-            </div>
+            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Круг жанров — выбери настроение ветки</div>
+            <GenreWheel selected={tags} onToggle={toggleTag} multi size={236} />
+            {tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>{tags.map(t => <Tag key={t} id={t} />)}</div>}
           </div>
 
           <div className="card" style={{ padding: 18 }}>
@@ -2434,6 +2433,53 @@ function PostCard({ post, reacts, onReact, go }) {
   );
 }
 
+/* ---- интерактивный круг жанров (кольцо с секторами) ---- */
+function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
+  const { TAGS } = window.WYRM;
+  const ids = Object.keys(TAGS);
+  const [hover, setHover] = useState(null);
+  const sel = Array.isArray(selected) ? selected : (selected ? [selected] : []);
+  const cx = size / 2, cy = size / 2;
+  const R = size / 2 - 8, r = size * 0.26;
+  const n = ids.length, step = 360 / n, gap = 1.6;
+  const pol = (ang, rad) => { const a = (ang - 90) * Math.PI / 180; return [cx + Math.cos(a) * rad, cy + Math.sin(a) * rad]; };
+  const sector = (i, ro, ri) => {
+    const a0 = i * step + gap, a1 = (i + 1) * step - gap;
+    const [x0, y0] = pol(a0, ro), [x1, y1] = pol(a1, ro);
+    const [x2, y2] = pol(a1, ri), [x3, y3] = pol(a0, ri);
+    const large = (a1 - a0) > 180 ? 1 : 0;
+    return `M ${x0} ${y0} A ${ro} ${ro} 0 ${large} 1 ${x1} ${y1} L ${x2} ${y2} A ${ri} ${ri} 0 ${large} 0 ${x3} ${y3} Z`;
+  };
+  const active = hover != null ? hover : (sel.length ? ids.indexOf(sel[sel.length - 1]) : null);
+  const atMax = multi && max && sel.length >= max;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: 'visible' }}>
+        {ids.map((id, i) => {
+          const t = TAGS[id]; const on = sel.includes(id); const ro = on ? R + 5 : R;
+          const blocked = atMax && !on;
+          return (
+            <path key={id} d={sector(i, ro, r)}
+              fill={`oklch(0.7 0.15 ${t.hue} / ${on ? 0.95 : (hover === i ? 0.55 : 0.22)})`}
+              stroke={on ? `oklch(0.82 0.14 ${t.hue})` : 'var(--line-soft)'} strokeWidth={on ? 1.5 : 0.8}
+              style={{ cursor: blocked ? 'not-allowed' : 'pointer', transition: 'all .22s var(--ease)' }}
+              onClick={() => { if (!blocked) onToggle(id); }}
+              onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+              <title>{t.label}</title>
+            </path>
+          );
+        })}
+        <text x={cx} y={cy - 3} textAnchor="middle" style={{ fontFamily: 'var(--display)', fontWeight: 700, fontSize: 15, fill: 'var(--ink)' }}>
+          {active != null ? TAGS[ids[active]].label : (multi ? 'Жанры' : 'Жанр')}
+        </text>
+        <text x={cx} y={cy + 14} textAnchor="middle" style={{ fontFamily: 'var(--mono)', fontSize: 8.5, fill: 'var(--ink-3)', letterSpacing: '.1em' }}>
+          {multi ? (sel.length + (max ? ' / ' + max : '') + ' выбрано') : (sel.length ? 'выбран' : 'выбери сектор')}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 /* ---------------- ЛЕНТА ---------------- */
 function Feed({ go, user }) {
   const ref = useReveal();
@@ -2579,10 +2625,8 @@ function CommunityCreate({ user, onClose, onCreate, go }) {
             <textarea className="compose-input" value={blurb} onChange={e => setBlurb(e.target.value)} rows={3} placeholder="Истории, темы, дух сообщества…" style={{ width: '100%', resize: 'vertical' }} />
           </div>
           <div>
-            <label className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-2)', display: 'block', marginBottom: 8, letterSpacing: '.1em' }}>НАСТРОЕНИЕ · до 3</label>
-            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-              {allTags.map(t => <Tag key={t} id={t} asButton active={tags.includes(t)} onClick={() => toggleTag(t)} />)}
-            </div>
+            <label className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-2)', display: 'block', marginBottom: 8, letterSpacing: '.1em' }}>КРУГ ЖАНРОВ · до 3</label>
+            <GenreWheel selected={tags} onToggle={toggleTag} multi max={3} size={228} />
           </div>
           <div>
             <label className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-2)', display: 'block', marginBottom: 8, letterSpacing: '.1em' }}>ЦВЕТ ОБЛОЖКИ</label>
@@ -2689,7 +2733,7 @@ function CommunityDetail({ go, ctx, user }) {
   );
 }
 
-Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate });
+Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate, GenreWheel });
 
 /* ╔══ 14 · App shell ══╗ */
 /* ============================================================
