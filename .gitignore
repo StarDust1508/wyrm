@@ -1,0 +1,9 @@
+node_modules
+dist
+.DS_Store
+*.log
+
+# build/extraction scratch — not part of the source project
+extracted/
+app-source.html
+WYRM-standalone.html
