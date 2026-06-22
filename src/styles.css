@@ -1218,3 +1218,42 @@ body.zen footer{ opacity:.4; }
   }
   .mobile-menu[data-open="true"] .mobile-menu-panel{ transform:none; }
 }
+
+/* ============================================================
+   DESIGN UPGRADE — Malvah-inspired polish (appended; overrides above)
+   ============================================================ */
+:root{ --r-card:14px; --r-btn:10px; }
+
+/* softer rounding + smoother, deeper elevation on hover */
+.card{ border-radius:var(--r-card); transition:transform .5s var(--ease), box-shadow .5s var(--ease), border-color .4s var(--ease); }
+.btn{ border-radius:var(--r-btn); letter-spacing:-.01em; }
+.icon-btn{ border-radius:10px; }
+.tag{ border-radius:999px; }            /* pill chips */
+
+/* story cards: gallery-like float */
+.story-card{ transition:transform .55s var(--ease-out), box-shadow .55s var(--ease-out); border-radius:var(--r-card); }
+.story-card:hover{ transform:translateY(-6px); box-shadow:0 30px 60px -34px oklch(0 0 0 / .5); }
+
+/* animated nav underline (Malvah-style) */
+.nav-link::after{
+  content:""; position:absolute; left:.8em; right:.8em; bottom:.18em; height:1.5px; background:var(--accent);
+  transform:scaleX(0); transform-origin:left; transition:transform .35s var(--ease); opacity:.85;
+}
+.nav-link:hover::after{ transform:scaleX(.55); }
+.nav-link[data-active="true"]::after{ transform:scaleX(1); opacity:1; }
+
+/* mono catalog code (SC_13©25 vibe) */
+.code{ font-family:var(--mono); font-weight:500; font-size:.6rem; letter-spacing:.14em; color:var(--ink-3); text-transform:uppercase; }
+
+/* confident display tracking + balanced wrapping */
+.display{ letter-spacing:-0.028em; text-wrap:balance; }
+
+/* crisp selection + slim modern scrollbar */
+::selection{ background:var(--accent); color:var(--accent-ink); }
+*{ scrollbar-width:thin; scrollbar-color:var(--line) transparent; }
+*::-webkit-scrollbar{ width:10px; height:10px; }
+*::-webkit-scrollbar-thumb{ background:var(--line-soft); border-radius:999px; border:3px solid transparent; background-clip:content-box; }
+*::-webkit-scrollbar-thumb:hover{ background:var(--line); background-clip:content-box; }
+
+/* nav: a touch more glass + breathing room */
+.nav{ padding:20px 0; }

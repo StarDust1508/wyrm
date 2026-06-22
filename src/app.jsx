@@ -528,14 +528,17 @@ function Landing({ go }) {
   ];
   return (
     <div className="view" ref={ref}>
-      {/* HERO */}
-      <section className="wrap" style={{ padding: 'clamp(48px,9vh,120px) 0 64px' }}>
-        <div className="reveal eyebrow" style={{ marginBottom: 28 }}>Платформа коллективного повествования</div>
-        <h1 className="reveal display" style={{ fontSize: 'clamp(3.2rem, 11vw, 9.5rem)', maxWidth: '15ch' }}>
-          Истории, которые<br />пишет <span style={{ color: 'var(--accent)' }}>сообщество</span>.
+      {/* HERO — editorial index (Malvah-inspired) */}
+      <section className="wrap" style={{ padding: 'clamp(40px,8vh,96px) 0 clamp(48px,7vh,80px)' }}>
+        <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, paddingBottom: 16, marginBottom: 'clamp(40px,7vh,84px)', borderBottom: 'var(--rule-style)' }}>
+          <span className="code">WY—01 · Платформа коллективного повествования</span>
+          <span className="code" style={{ whiteSpace: 'nowrap' }}>©2026 · живая</span>
+        </div>
+        <h1 className="reveal display" style={{ fontSize: 'clamp(3.4rem, 12vw, 11rem)', maxWidth: '14ch', lineHeight: .94 }}>
+          Истории, которые пишет <span style={{ color: 'var(--accent)' }}>сообщество</span>.
         </h1>
-        <div className="reveal" style={{ display: 'flex', flexWrap: 'wrap', gap: 38, alignItems: 'flex-end', marginTop: 40 }}>
-          <p className="serif-italic" style={{ fontSize: 'clamp(1.1rem,2.2vw,1.5rem)', color: 'var(--ink-2)', maxWidth: '40ch', lineHeight: 1.45 }}>
+        <div className="reveal" style={{ display: 'flex', flexWrap: 'wrap', gap: 38, alignItems: 'flex-end', marginTop: 'clamp(36px,6vh,64px)' }}>
+          <p className="serif-italic" style={{ fontSize: 'clamp(1.15rem,2.2vw,1.6rem)', color: 'var(--ink-2)', maxWidth: '38ch', lineHeight: 1.5 }}>
             Множество авторов добавляют главы в одно произведение. Каждая развилка — новая судьба героев. Читатель выбирает путь — и сам становится соавтором.
           </p>
           <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
@@ -679,6 +682,7 @@ function Catalog({ go }) {
             <div>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
                 <h3 className="display" style={{ fontSize: '1.3rem' }}>{s.title}</h3>
+                <span className="code" style={{ flex: '0 0 auto' }}>WY_{String(i + 1).padStart(2, '0')} ©26</span>
               </div>
               <div className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-3)', margin: '4px 0 9px' }}>@{s.author}</div>
               <p style={{ color: 'var(--ink-2)', fontSize: '.9rem', marginBottom: 12 }}>{s.synopsis}</p>
