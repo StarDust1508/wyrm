@@ -125,17 +125,63 @@ window.React = React; window.ReactDOM = ReactDOM;
     { id:'crown', title:'Тысяча малых корон', author:'archivar', synopsis:'Империя распадается на тысячу княжеств. Каждый соавтор пишет за своего наследника.', contributors:104, branches:71, tags:['politics','war','tragedy'], hot:true },
   ];
 
-  // Branches the reader published in earlier sessions live in localStorage;
-  // fold them back into the tree so the story keeps growing across reloads.
+  // ---- seed trees for the non-flagship stories (so every catalog story
+  //      opens its OWN living tree, not the flagship's) ----
+  const seed = (id, parent, title, author, canon, score, votes, tags, excerpt) =>
+    ({ id, parent, title, author, canon, score, votes, words: excerpt.split(/\s+/).length * 6, tags, excerpt, chars: {} });
+  const STORY_TREES = {
+    glass: [
+      seed('glass-root', null, 'Теплица', 'lune_v', true, 0.9, 1840, ['slow-burn'], 'Бабушкина теплица из стекла росла внутрь — и каждый цветок помнил чью-то жизнь.'),
+      seed('glass-a', 'glass-root', 'Первый цветок', 'lune_v', true, 0.84, 1320, ['romance'], 'Девочка коснулась бутона и вспомнила чужую первую любовь — так ясно, будто свою.'),
+      seed('glass-b', 'glass-root', 'Трещина в стекле', 'mara.q', false, 0.55, 610, ['tragedy'], 'Но стекло дало трещину, и одно воспоминание вытекло наружу, отравив сад.'),
+      seed('glass-a1', 'glass-a', 'Чужая жизнь', 'lune_v', true, 0.78, 980, ['slow-burn', 'tragedy'], 'Чтобы спасти цветок, ей пришлось прожить чужую смерть до конца.'),
+    ],
+    gears: [
+      seed('gears-root', null, 'Город-машина', 'cogsmith', true, 0.88, 1620, ['politics'], 'В Вавилоне молитвы измеряли в киловаттах, а боги носили комбинезоны инженеров.'),
+      seed('gears-a', 'gears-root', 'Молитва в киловаттах', 'cogsmith', true, 0.8, 1210, ['politics'], 'Когда подача упала, верующие впервые усомнились: а слышит ли их вообще турбина небес?'),
+      seed('gears-b', 'gears-root', 'Сбой бога', 'grimwarden', false, 0.5, 540, ['war'], 'Главный реактор-божество дал сбой — и город узнал, каково это, остаться без чуда.'),
+      seed('gears-a1', 'gears-a', 'Забастовка ангелов', 'cogsmith', false, 0.62, 720, ['politics', 'war'], 'Обслуживающие ангелы сложили инструменты. Небеса встали на профилактику.'),
+    ],
+    salt: [
+      seed('salt-root', null, 'Сети', 'tide.witch', true, 0.85, 1100, ['horror'], 'В то утро деревня вытащила из сетей не рыбу, а спящее, солёное от моря божество.'),
+      seed('salt-a', 'salt-root', 'Спящее божество', 'tide.witch', true, 0.79, 870, ['dark-fantasy'], 'Старейшины решили не будить его. Но дети уже слышали, как оно дышит под полом.'),
+      seed('salt-b', 'salt-root', 'Шёпот прилива', 'nyx___', false, 0.48, 410, ['horror'], 'Каждый прилив шептал новое имя. Тех, кого назвали, наутро не находили.'),
+      seed('salt-a1', 'salt-a', 'Пробуждение', 'tide.witch', false, 0.6, 690, ['horror', 'dark-fantasy'], 'Когда оно открыло глаза, море отступило на милю — и больше не вернулось.'),
+    ],
+    comedy: [
+      seed('comedy-root', null, 'Худшая команда', 'jest_r', true, 0.92, 2100, ['comedy'], 'Их выгнали из всех гильдий королевства. Поэтому они основали свою — для отверженных.'),
+      seed('comedy-a', 'comedy-root', 'Случайное спасение', 'jest_r', true, 0.87, 1540, ['happy-end'], 'Пытаясь украсть обед, они случайно сорвали ритуал конца света. Никто так и не понял как.'),
+      seed('comedy-b', 'comedy-root', 'Дважды герои', 'ashpoet', false, 0.54, 480, ['comedy'], 'Спасли мир второй раз — и снова не заметили. Зато потеряли осла.'),
+      seed('comedy-a1', 'comedy-a', 'Орден позора', 'jest_r', false, 0.66, 900, ['comedy', 'happy-end'], 'Король наградил их орденом и попросил, пожалуйста, больше ничего не спасать.'),
+    ],
+    crown: [
+      seed('crown-root', null, 'Распад империи', 'archivar', true, 0.86, 1980, ['politics'], 'Когда умер последний император, тысяча наследников подняли тысячу малых корон.'),
+      seed('crown-a', 'crown-root', 'Первый наследник', 'archivar', true, 0.81, 1460, ['politics', 'tragedy'], 'Юный князь предложил союз — и получил в ответ голову своего посла в подарочной коробке.'),
+      seed('crown-b', 'crown-root', 'Война кузенов', 'grimwarden', false, 0.57, 640, ['war'], 'Шесть кузенов, шесть армий, одна зима. К весне осталась половина.'),
+      seed('crown-a1', 'crown-a', 'Корона из пепла', 'archivar', false, 0.63, 810, ['war', 'tragedy'], 'Победитель сел на трон из переплавленных корон побеждённых. Он правил три дня.'),
+    ],
+  };
+
+  // nodesFor(storyId): seed tree + branches this reader published (per story).
+  function nodesFor(storyId) {
+    const base = storyId === 'ashes' ? NODES : (STORY_TREES[storyId] || []);
+    let extra = [];
+    try { const e = JSON.parse(localStorage.getItem('wyrm.nodes')); if (Array.isArray(e)) extra = e.filter(n => (n.story || 'ashes') === storyId); } catch (e) {}
+    const have = new Set(base.map(n => n.id));
+    return [...base, ...extra.filter(n => n && n.id && !have.has(n.id))];
+  }
+
+  // Fold the flagship's persisted branches back into NODES (for flagship-only
+  // screens like Reader's Cut that read NODES directly).
   try {
     const extra = JSON.parse(localStorage.getItem('wyrm.nodes'));
     if (Array.isArray(extra)) {
       const have = new Set(NODES.map(n => n.id));
-      extra.forEach(n => { if (n && n.id && !have.has(n.id)) NODES.push(n); });
+      extra.filter(n => (n.story || 'ashes') === 'ashes').forEach(n => { if (n && n.id && !have.has(n.id)) NODES.push(n); });
     }
   } catch (e) {}
 
-  window.WYRM = { TAGS, CHARACTERS, NODES, FLAGSHIP, STORIES };
+  window.WYRM = { TAGS, CHARACTERS, NODES, FLAGSHIP, STORIES, STORY_TREES, nodesFor };
 })();
 
 
@@ -333,9 +379,9 @@ function ancestorsOf(id, byId) {
   return set;
 }
 
-function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activeTag }) {
-  const nodes = window.WYRM.NODES;
-  const L = useMemo(() => layoutTree(nodes, orientation), [orientation, nodes.length]);
+function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activeTag, nodes: nodesProp }) {
+  const nodes = nodesProp || window.WYRM.NODES;
+  const L = useMemo(() => layoutTree(nodes, orientation), [orientation, nodes.length, nodes]);
   const [hover, setHover] = useStateT(null);
   const scrollRef = useRefT(null);
   const NODE_W = 196;
@@ -477,7 +523,7 @@ function Landing({ go }) {
             Множество авторов добавляют главы в одно произведение. Каждая развилка — новая судьба героев. Читатель выбирает путь — и сам становится соавтором.
           </p>
           <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
-            <button className="btn btn-primary" onClick={() => go('reader')}><Icon name="branch" size={16} />Открыть древо</button>
+            <button className="btn btn-primary" onClick={() => go('reader', { story: 'ashes', node: null })}><Icon name="branch" size={16} />Открыть древо</button>
             <button className="btn btn-ghost" onClick={() => go('catalog')}>Каталог историй</button>
           </div>
         </div>
@@ -501,10 +547,10 @@ function Landing({ go }) {
                 </div>
               ))}
             </div>
-            <button className="btn btn-primary" onClick={() => go('reader')}>Читать и ветвить<Icon name="arrow" size={16} /></button>
+            <button className="btn btn-primary" onClick={() => go('reader', { story: 'ashes', node: null })}>Читать и ветвить<Icon name="arrow" size={16} /></button>
           </div>
           <div style={{ position: 'relative', borderLeft: 'var(--rule-style)', minHeight: 320 }}>
-            <MiniTree onOpen={() => go('reader')} />
+            <MiniTree onOpen={() => go('reader', { story: 'ashes', node: null })} />
           </div>
         </div>
       </section>
@@ -609,7 +655,7 @@ function Catalog({ go }) {
       {/* grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(270px,1fr))', gap: 26 }}>
         {list.map((s, i) => (
-          <button key={s.id} className="reveal story-card" onClick={() => go('reader')} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <button key={s.id} className="reveal story-card" onClick={() => go('reader', { story: s.id })} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ position: 'relative' }}>
               <CoverSlot label={`обложка · ${s.title}`} hue={(TAGS[s.tags[0]] || {}).hue || 200} />
               {s.hot && <span className="mono" style={{ position: 'absolute', top: 10, left: 10, fontSize: '.54rem', padding: '.3em .55em', background: 'var(--accent)', color: 'var(--accent-ink)', borderRadius: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="flame" size={11} />В огне</span>}
@@ -643,31 +689,38 @@ Object.assign(window, { Landing, Catalog });
    ============================================================ */
 
 function Reader({ go, ctx, setCtx }) {
-  const { NODES, FLAGSHIP, CHARACTERS } = window.WYRM;
+  const { FLAGSHIP, CHARACTERS, STORIES } = window.WYRM;
+  const story = STORIES.find(s => s.id === ctx.story) || FLAGSHIP;
+  const NODES = window.WYRM.nodesFor(story.id);
   const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
-  const [sel, setSel] = useState(ctx.node || 'A1a');
+  const rootId = (NODES.find(n => !n.parent) || NODES[0]).id;
+  const [sel, setSel] = useState(ctx.node || (byId['A1a'] ? 'A1a' : rootId));
   const [orient, setOrient] = useState('vertical');
   const [filter, setFilter] = useState(null);
   const [voted, setVoted] = useState(() => wyrmLoad('wyrm.votes', {}));
-  const node = byId[sel] || byId['root'];
+  // reset selection when the story changes (but not on first mount, so feed deep-links keep their node)
+  const prevStory = useRef(story.id);
+  useEffect(() => { if (prevStory.current !== story.id) { prevStory.current = story.id; setSel(byId['A1a'] ? 'A1a' : rootId); } }, [story.id]);
+  const node = byId[sel] || byId[rootId];
+  const curId = node.id;
   const castVote = (id) => setVoted(v => { const nx = { ...v, [id]: !v[id] }; wyrmSave('wyrm.votes', nx); return nx; });
 
-  const path = [...ancestorsOf(sel, byId)].reverse(); // root → sel
+  const path = [...ancestorsOf(curId, byId)].reverse(); // root → sel
   const allTags = [...new Set(NODES.flatMap(n => n.tags))];
 
-  const goFork = (id) => { setCtx({ ...ctx, forkFrom: id }); go('compose'); };
+  const goFork = (id) => { setCtx({ ...ctx, forkFrom: id, story: story.id }); go('compose'); };
 
   return (
     <div className="view wrap" style={{ padding: 'clamp(26px,4vh,44px) 0 80px' }}>
       {/* story header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 18, borderBottom: 'var(--rule-style)', paddingBottom: 22, marginBottom: 22 }}>
         <div>
-          <div className="eyebrow" style={{ marginBottom: 12 }}>Древо истории · @{FLAGSHIP.author}</div>
-          <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3.6rem)', marginBottom: 10 }}>{FLAGSHIP.title}</h1>
-          <p style={{ color: 'var(--ink-2)', maxWidth: '60ch' }}>{FLAGSHIP.synopsis}</p>
+          <div className="eyebrow" style={{ marginBottom: 12 }}>Древо истории · @{story.author}</div>
+          <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3.6rem)', marginBottom: 10 }}>{story.title}</h1>
+          <p style={{ color: 'var(--ink-2)', maxWidth: '60ch' }}>{story.synopsis}</p>
         </div>
         <div style={{ display: 'flex', gap: 22 }}>
-          {[['Соавторов', FLAGSHIP.contributors], ['Ветвей', FLAGSHIP.branches]].map(([k, v]) => (
+          {[['Соавторов', story.contributors], ['Ветвей', NODES.length]].map(([k, v]) => (
             <div key={k} style={{ textAlign: 'right' }}>
               <div className="display" style={{ fontSize: '1.7rem' }}>{v}</div>
               <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{k}</div>
@@ -694,14 +747,14 @@ function Reader({ go, ctx, setCtx }) {
       {/* main split */}
       <div className="reader-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 366px', gap: 20, alignItems: 'start' }}>
         <div>
-          <StoryTree orientation={orient} selected={sel} activeTag={filter}
-            onSelect={setSel} onFork={goFork} />
+          <StoryTree orientation={orient} selected={curId} activeTag={filter}
+            onSelect={setSel} onFork={goFork} nodes={NODES} />
           {/* breadcrumb path */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 14, color: 'var(--ink-3)' }}>
             <span className="mono" style={{ fontSize: '.56rem' }}>путь:</span>
             {path.map((id, i) => (
               <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <button className="mono path-crumb" onClick={() => setSel(id)} style={{ fontSize: '.58rem', color: sel === id ? 'var(--accent)' : 'var(--ink-2)' }}>{byId[id].title}</button>
+                <button className="mono path-crumb" onClick={() => setSel(id)} style={{ fontSize: '.58rem', color: curId === id ? 'var(--accent)' : 'var(--ink-2)' }}>{byId[id].title}</button>
                 {i < path.length - 1 && <span style={{ opacity: .5 }}>›</span>}
               </span>
             ))}
@@ -732,11 +785,11 @@ function Reader({ go, ctx, setCtx }) {
             <CanonMeter score={node.score} gold={node.canon} />
 
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => castVote(sel)}
-                style={{ flex: 1, justifyContent: 'center', borderColor: voted[sel] ? 'var(--gold)' : 'var(--line)', color: voted[sel] ? 'var(--gold)' : 'var(--ink)' }}>
-                <Icon name={voted[sel] ? 'check' : 'star'} size={15} />{voted[sel] ? 'Голос за канон' : 'За канон'}
+              <button className="btn btn-ghost btn-sm" onClick={() => castVote(curId)}
+                style={{ flex: 1, justifyContent: 'center', borderColor: voted[curId] ? 'var(--gold)' : 'var(--line)', color: voted[curId] ? 'var(--gold)' : 'var(--ink)' }}>
+                <Icon name={voted[curId] ? 'check' : 'star'} size={15} />{voted[curId] ? 'Голос за канон' : 'За канон'}
               </button>
-              <button className="btn btn-primary btn-sm" onClick={() => goFork(sel)} style={{ flex: 1, justifyContent: 'center' }}>
+              <button className="btn btn-primary btn-sm" onClick={() => goFork(curId)} style={{ flex: 1, justifyContent: 'center' }}>
                 <Icon name="fork" size={15} />А что, если…
               </button>
             </div>
@@ -752,7 +805,9 @@ function Reader({ go, ctx, setCtx }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {Object.entries(node.chars).map(([cid, st]) => {
                 const c = CHARACTERS[cid];
-                const canonSt = byId['A1a'].chars[cid];
+                if (!c) return null;
+                const canonBase = byId['A1a'] || byId[rootId];
+                const canonSt = canonBase && canonBase.chars ? canonBase.chars[cid] : st;
                 const diverged = st !== canonSt;
                 return (
                   <div key={cid} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', borderTop: 'var(--rule-style)' }}>
@@ -778,9 +833,11 @@ function Reader({ go, ctx, setCtx }) {
 
 /* ---------------- COMPOSE / FORK ---------------- */
 function Compose({ go, ctx, setCtx }) {
-  const { NODES, CHARACTERS, TAGS } = window.WYRM;
+  const { CHARACTERS, TAGS } = window.WYRM;
+  const storyId = ctx.story || 'ashes';
+  const NODES = window.WYRM.nodesFor(storyId);
   const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
-  const parent = byId[ctx.forkFrom] || byId['A1a'];
+  const parent = byId[ctx.forkFrom] || byId['A1a'] || NODES.find(n => !n.parent) || NODES[0];
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [tags, setTags] = useState(parent.tags.slice(0, 2));
@@ -808,8 +865,9 @@ function Compose({ go, ctx, setCtx }) {
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text,
       html: body,
       chars: { ...chars },
+      story: storyId,
     };
-    window.WYRM.NODES.push(node);
+    if (storyId === 'ashes') window.WYRM.NODES.push(node); // keep flagship-only screens in sync this session
     const stored = wyrmLoad('wyrm.nodes', []);
     wyrmSave('wyrm.nodes', [...stored, node]);
     setNewId(node.id);
@@ -825,7 +883,7 @@ function Compose({ go, ctx, setCtx }) {
       </p>
       <p style={{ color: 'var(--ink-3)', marginBottom: 30 }}>Сообщество начнёт голосовать за неё. Наберёт больше всех — станет каноном.</p>
       <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-        <button className="btn btn-primary" onClick={() => go('reader', { node: newId || parent.id })}>К древу<Icon name="arrow" size={15} /></button>
+        <button className="btn btn-primary" onClick={() => go('reader', { node: newId || parent.id, story: storyId })}>К древу<Icon name="arrow" size={15} /></button>
         <button className="btn btn-ghost" onClick={() => { setDone(false); setTitle(''); setBody(''); setNewId(null); }}>Ещё ветку</button>
       </div>
     </div>
@@ -966,10 +1024,15 @@ function Merge({ go }) {
   const accepted = MERGE_HUNKS.filter(h => (h.type === 'add' || h.type === 'del') && dec[h.id] !== 'reject').length;
   const [merged, setMerged] = useState(false);
 
+  const REVIEWERS = ['eira_noct', 'mara.q', 'nyx___'];
+  const [approvals, setApprovals] = useState({});
+  const approvedCount = Object.values(approvals).filter(Boolean).length;
+  const toggleApprove = (a) => setApprovals(s => ({ ...s, [a]: !s[a] }));
+
   const checks = [
     { ok: resolved, label: resolved ? 'Конфликт разрешён' : 'Есть неразрешённый конфликт' },
-    { ok: true, label: 'Lore-Graph: непротиворечивость пройдена' },
-    { ok: true, label: '2 ревьюера одобрили' },
+    { ok: resolved && accepted >= 1, label: accepted >= 1 ? 'Lore-Graph: непротиворечивость пройдена' : 'Нет принятых правок' },
+    { ok: approvedCount >= 2, label: approvedCount + ' / 2 ревьюера одобрили' },
   ];
   const ready = checks.every(c => c.ok);
 
@@ -1030,9 +1093,18 @@ function Merge({ go }) {
           </div>
 
           <div className="card" style={{ padding: 18 }}>
-            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Ревьюеры</div>
-            <div style={{ display: 'flex', gap: -6 }}>
-              {['eira_noct', 'mara.q', 'nyx___'].map(a => <span key={a} style={{ marginRight: 6 }}><Avatar name={a} size={28} /></span>)}
+            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Ревьюеры · нажми, чтобы одобрить</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {REVIEWERS.map(a => {
+                const ok = !!approvals[a];
+                return (
+                  <button key={a} onClick={() => toggleApprove(a)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 4, border: '1px solid ' + (ok ? 'oklch(0.7 0.13 150 / .5)' : 'var(--line-soft)'), background: ok ? 'oklch(0.7 0.13 150 / .1)' : 'transparent', textAlign: 'left' }}>
+                    <Avatar name={a} size={26} />
+                    <span style={{ flex: 1, fontSize: '.82rem' }}>@{a}</span>
+                    <span style={{ color: ok ? 'oklch(0.78 0.13 150)' : 'var(--ink-3)' }}><Icon name={ok ? 'check' : 'plus'} size={14} /></span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -1103,7 +1175,12 @@ function LoreGraph({ go }) {
   const ref = useReveal();
   const [branch, setBranch] = useState('draft');
   const [sel, setSel] = useState('keira');
+  const [handled, setHandled] = useState({}); // 'resolved' | 'ignored', keyed by branch:index
   const B = LORE_BRANCHES[branch];
+  const issueKey = (i) => branch + ':' + i;
+  const visibleIssues = B.issues.map((iss, i) => ({ iss, i })).filter(x => handled[issueKey(x.i)] !== 'ignored');
+  const unresolved = visibleIssues.filter(x => handled[issueKey(x.i)] !== 'resolved').length;
+  const setIssue = (i, v) => setHandled(h => ({ ...h, [issueKey(i)]: v }));
   const byId = Object.fromEntries(LORE_NODES.map(n => [n.id, n]));
   const neighbors = new Set(LORE_EDGES.filter(e => e[0] === sel || e[1] === sel).flatMap(e => [e[0], e[1]]));
   const node = byId[sel];
@@ -1190,31 +1267,39 @@ function LoreGraph({ go }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <h3 className="display" style={{ fontSize: '1.05rem' }}>Проверка канона</h3>
               <span className="mono" style={{ fontSize: '.5rem', padding: '.25em .55em', borderRadius: 2,
-                background: B.issues.length ? 'oklch(0.7 0.12 35 / .15)' : 'oklch(0.7 0.13 150 / .15)',
-                color: B.issues.length ? 'oklch(0.78 0.13 35)' : 'oklch(0.78 0.13 150)' }}>
-                {B.issues.length ? `${B.issues.length} замеч.` : 'чисто'}
+                background: unresolved ? 'oklch(0.7 0.12 35 / .15)' : 'oklch(0.7 0.13 150 / .15)',
+                color: unresolved ? 'oklch(0.78 0.13 35)' : 'oklch(0.78 0.13 150)' }}>
+                {unresolved ? `${unresolved} замеч.` : 'чисто'}
               </span>
             </div>
             <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 14 }}>авто-сканирование ветки на противоречия</p>
-            {B.issues.length === 0 ? (
+            {visibleIssues.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'oklch(0.78 0.13 150)' }}>
                 <Icon name="check" size={16} /><span style={{ fontSize: '.86rem' }}>Противоречий не найдено</span>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {B.issues.map((iss, i) => {
+                {visibleIssues.map(({ iss, i }) => {
                   const hue = iss.sev === 'high' ? 25 : iss.sev === 'mid' ? 50 : 86;
+                  const done = handled[issueKey(i)] === 'resolved';
                   return (
-                    <div key={i} style={{ borderLeft: `2px solid oklch(0.7 0.14 ${hue})`, paddingLeft: 11 }}>
+                    <div key={i} style={{ borderLeft: `2px solid oklch(0.7 0.14 ${done ? 150 : hue})`, paddingLeft: 11, opacity: done ? .7 : 1 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <span style={{ fontWeight: 600, fontSize: '.88rem' }}>{iss.t}</span>
-                        <span className="mono" style={{ fontSize: '.46rem', color: `oklch(0.78 0.13 ${hue})`, textTransform: 'uppercase' }}>{iss.sev}</span>
+                        <span className="mono" style={{ fontSize: '.46rem', color: `oklch(0.78 0.13 ${done ? 150 : hue})`, textTransform: 'uppercase' }}>{done ? 'разрешено' : iss.sev}</span>
                       </div>
                       <p style={{ fontSize: '.82rem', color: 'var(--ink-2)', marginBottom: 8 }}>{iss.d}</p>
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button className="btn btn-sm btn-primary" style={{ fontSize: '.62rem' }}>Развести линии</button>
-                        <button className="btn btn-sm btn-ghost" style={{ fontSize: '.62rem' }}>Игнор</button>
-                      </div>
+                      {done ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'oklch(0.78 0.13 150)' }}>
+                          <Icon name="check" size={13} /><span className="mono" style={{ fontSize: '.56rem' }}>линии разведены</span>
+                          <button className="mono path-crumb" onClick={() => setIssue(i, null)} style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginLeft: 6 }}>отменить</button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button className="btn btn-sm btn-primary" style={{ fontSize: '.62rem' }} onClick={() => setIssue(i, 'resolved')}>Развести линии</button>
+                          <button className="btn btn-sm btn-ghost" style={{ fontSize: '.62rem' }} onClick={() => setIssue(i, 'ignored')}>Игнор</button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1457,6 +1542,9 @@ function WritersRoom({ go }) {
   const total = dirs.reduce((s, d) => s + d.votes, 0);
   const lead = dirs.reduce((a, b) => b.votes > a.votes ? b : a, dirs[0]);
   const react = k => setReacts(r => ({ ...r, [k]: r[k] + 1 }));
+  const me = wyrmLoad('wyrm.user', null);
+  const myHandle = me ? (me.handle || me.name) : 'ты';
+  const queue = inQueue ? [...RELAY_QUEUE, { who: myHandle, role: 'в очереди · ты', mine: true }] : RELAY_QUEUE;
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>
@@ -1535,7 +1623,7 @@ function WritersRoom({ go }) {
           <div className="card" style={{ padding: 18 }}>
             <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 12 }}>Эстафета · передача пера</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {RELAY_QUEUE.map((w, i) => (
+              {queue.map((w, i) => (
                 <div key={w.who} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', borderTop: i ? 'var(--rule-style)' : 'none' }}>
                   <span style={{ position: 'relative' }}>
                     <Avatar name={w.who} size={30} />
@@ -1550,7 +1638,7 @@ function WritersRoom({ go }) {
               ))}
             </div>
             <button className="btn btn-primary" onClick={() => setInQueue(q => !q)} style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}>
-              <Icon name={inQueue ? 'check' : 'plus'} size={15} />{inQueue ? 'Ты в очереди (5-й)' : 'Встать в эстафету'}
+              <Icon name={inQueue ? 'check' : 'plus'} size={15} />{inQueue ? `Ты в очереди (${queue.length}-й) · выйти` : 'Встать в эстафету'}
             </button>
           </div>
 
@@ -2410,7 +2498,7 @@ function PostCard({ post, user, onReact, onRepost, go }) {
       <p style={{ color: 'var(--ink)', lineHeight: 1.6, marginBottom: post.ref || (post.tags && post.tags.length) ? 14 : 4 }}>{post.text}</p>
 
       {post.ref && (
-        <button className="path-crumb" onClick={() => go && go('reader', post.ref.node ? { node: post.ref.node } : undefined)}
+        <button className="path-crumb" onClick={() => go && go('reader', { story: post.ref.story || 'ashes', node: post.ref.node || null })}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 3, border: 'var(--rule-style)', background: 'var(--bg-2)', marginBottom: 14, cursor: 'pointer', maxWidth: '100%' }}>
           <Icon name="branch" size={13} />
           <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-2)' }}>{post.ref.storyTitle}{post.ref.node ? ' · гл. ' + post.ref.node.toUpperCase() : ''}</span>
@@ -2934,7 +3022,7 @@ function App() {
           <span className="tld">сотвори историю вместе</span>
         </div>
         <nav className="nav-links">
-          {NAV.map(([r, l]) => <button key={r} className="nav-link" data-active={route === r} onClick={() => go(r)}>{l}</button>)}
+          {NAV.map(([r, l]) => <button key={r} className="nav-link" data-active={route === r} onClick={() => go(r, r === 'reader' ? { story: 'ashes', node: null } : undefined)}>{l}</button>)}
           <StudioMenu items={STUDIO} route={route} go={go} active={studioRoutes.includes(route)} />
           <button className="nav-link" data-active={route === 'compose'} onClick={() => go('compose')}>Писать</button>
           <span style={{ width: 1, height: 22, background: 'var(--line)', margin: '0 6px' }} />
