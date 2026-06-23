@@ -69,7 +69,8 @@ function coalesceConflicts(hunks) {
 // conflict: 'them' → берём текст ветви, иначе оставляем текущий канон (text).
 export function applyMerge(hunks, decided) {
   const keep = [];
-  hunks.forEach((h, id) => {
+  hunks.forEach((h, i) => {
+    const id = h.id != null ? h.id : i;   // ключ решения — стабильный h.id (а не позиция)
     const rejected = decided[id] === 'reject';
     if (h.type === 'ctx') keep.push(h.text);
     else if (h.type === 'add') { if (!rejected) keep.push(h.text); }

@@ -20,6 +20,9 @@
  *                 these (or PB_SERVICE_TOKEN) are set — nodes.createRule
  *                 requires auth, so anonymous writes would 403.
  *   PB_SERVICE_TOKEN  alternative: a pre-issued PB auth token (skips login).
+ *                 MUST belong to a PocketBase SUPERUSER. A regular-user token
+ *                 still passes nodes.createRule but is NOT admin, so the hook
+ *                 would rewrite the turn's author and mis-attribute it.
  *
  * Run:  PORT=8090 PB_URL=https://pb.example.com \
  *       PB_ADMIN_EMAIL=admin@example.com PB_ADMIN_PASSWORD=secret node server.js
@@ -469,26 +472,37 @@ async function pbGetJson(path) {
 // the real story, never a stray canon root. If the slug doesn't resolve to a
 // real story, disable persistence for the session (no 400-loop). Memoized.
 async function resolveStoryContext(session) {
-  if (session.storyResolved) return;
-  session.storyResolved = true;
-  const slug = String(session.storyId || '').replace(/['"\\]/g, ''); // filter-safe
-  if (!slug) { session.persistDisabled = true; return; }
-  try {
+  if (session.storyResolved) return;                        // already resolved (ok or confirmed-missing)
+  if (session.storyResolving) { await session.storyResolving; return; } // share in-flight (no re-entrancy drop)
+  session.storyResolving = (async () => {
+    const slug = String(session.storyId || '').replace(/['"\\]/g, ''); // filter-safe (denylist; PB has no quote-escape)
+    if (!slug) { session.persistDisabled = true; session.storyResolved = true; return; }
+    // NOTE: a thrown pbGetJson here is a TRANSIENT failure — we do NOT set
+    // persistDisabled and do NOT mark resolved, so the next flush retries and
+    // the queue is preserved. Only a confirmed-missing story disables persist.
     const sres = await pbGetJson(`/api/collections/stories/records?perPage=1&filter=${encodeURIComponent(`slug='${slug}'`)}`);
     const story = sres && sres.items && sres.items[0];
     if (!story) {
-      session.persistDisabled = true;
+      session.persistDisabled = true; session.storyResolved = true;
       warn(`persist disabled for session ${session.id}: no story with slug "${slug}"`);
       return;
     }
     session.storyRecordId = story.id;
-    const nres = await pbGetJson(`/api/collections/nodes/records?perPage=1&sort=-created&filter=${encodeURIComponent(`story='${story.id}' && canon=true`)}`);
-    const tip = nres && nres.items && nres.items[0];
-    if (tip && !session.lastPersistedNodeId) session.lastPersistedNodeId = tip.id;
-  } catch (e) {
-    session.persistDisabled = true;
-    warn(`persist disabled for session ${session.id}: ${e?.message || e}`);
-  }
+    // parent = canon tip, else the latest node — NEVER '' (an empty parent would
+    // be force-canoned into a stray canon root). Empty story → can't attach.
+    let tip = null;
+    const cres = await pbGetJson(`/api/collections/nodes/records?perPage=1&sort=-created&filter=${encodeURIComponent(`story='${story.id}' && canon=true`)}`);
+    tip = cres && cres.items && cres.items[0];
+    if (!tip) {
+      const ares = await pbGetJson(`/api/collections/nodes/records?perPage=1&sort=-created&filter=${encodeURIComponent(`story='${story.id}'`)}`);
+      tip = ares && ares.items && ares.items[0];
+    }
+    if (tip) { if (!session.lastPersistedNodeId) session.lastPersistedNodeId = tip.id; }
+    else { session.persistDisabled = true; warn(`persist disabled for session ${session.id}: story "${slug}" has no nodes to attach turns to`); }
+    session.storyResolved = true;
+  })();
+  try { await session.storyResolving; }
+  finally { session.storyResolving = null; }
 }
 
 const handleCache = {};
@@ -531,9 +545,11 @@ async function flushSession(session) {
   if (!persistEnabled()) return; // persistence disabled (no PB_URL / no creds)
   if (session.pendingPersist.length === 0) return;
 
-  // Resolve the story once; if the room doesn't map to a real story, drop the
-  // queue quietly (already logged) instead of looping 400s forever.
-  await resolveStoryContext(session);
+  // Resolve the story once. A TRANSIENT failure throws → keep the queue and
+  // retry next interval (no data loss). Only a CONFIRMED-unpersistable session
+  // (missing story / empty story) drops the queue, and it was logged at resolve.
+  try { await resolveStoryContext(session); }
+  catch (e) { warn(`persist resolve failed for session ${session.id} (will retry):`, e?.message || e); return; }
   if (session.persistDisabled || !session.storyRecordId) { session.pendingPersist.length = 0; return; }
 
   // Take the current batch; re-queue transient failures, DROP rows that have

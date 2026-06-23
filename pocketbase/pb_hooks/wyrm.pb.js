@@ -476,17 +476,16 @@ onRecordBeforeCreateRequest((e) => {
   try {
     forceAuthor(e, $app.dao()); // owner = requester (anti author-spoofing)
     sanitizeNodeRecord(e.record);
-    // canon/score/votes are SERVER-DERIVED — never trust the client on create.
-    // A node starts with no votes; canon is true only for a root (no parent),
-    // every branch starts non-canon until votes elect it. Admins are exempt
-    // (e.g. the seed script sets historical values via the admin API).
+    // canon/score/votes are SERVER-DERIVED — never trust a regular client on
+    // create. A node starts with no votes; canon is true only for a root, every
+    // branch starts non-canon until votes elect it. Admin/service writes (seed,
+    // realtime persist) are TRUSTED to set canon explicitly — e.g. the realtime
+    // service sends canon:false for relay turns and must not be force-canoned.
     if (!isAdminRequest(e)) {
       const isRoot = e.record.getString("parent") === "";
       e.record.set("votes", 0);
       e.record.set("score", 0.3);
       e.record.set("canon", isRoot);
-    } else if (e.record.getString("parent") === "") {
-      e.record.set("canon", true);
     }
   } catch (err) {
     logErr("onRecordBeforeCreateRequest(nodes)", err);

@@ -1089,9 +1089,12 @@ body.zen footer{ opacity:.4; }
 .auth-overlay{
   position:fixed; inset:0; z-index:70; display:grid; place-items:center; padding:24px;
   background:color-mix(in oklab, var(--bg) 40%, oklch(0 0 0 / .6)); backdrop-filter:blur(6px);
-  opacity:0; pointer-events:none; transition:opacity .35s var(--ease);
+  /* visibility:hidden убирает закрытую модалку из tab-порядка (a11y);
+     задержка transition держит её видимой на время затухания opacity */
+  opacity:0; pointer-events:none; visibility:hidden;
+  transition:opacity .35s var(--ease), visibility 0s linear .35s;
 }
-.auth-overlay[data-open="true"]{ opacity:1; pointer-events:auto; }
+.auth-overlay[data-open="true"]{ opacity:1; pointer-events:auto; visibility:visible; transition:opacity .35s var(--ease); }
 .auth-card{
   position:relative; width:min(440px, 100%); padding:32px; border-radius:8px;
   background:var(--bg-2); max-height:92vh; overflow-y:auto;

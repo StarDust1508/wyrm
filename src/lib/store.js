@@ -155,11 +155,14 @@ function decorate(list, likes, comments) {
   }));
 }
 
-// мои лайки/закладки одним проходом → {liked:Set, saved:Set}
-async function likedSaved(pb) {
+// мои лайки/закладки ТОЛЬКО для постов текущей страницы → {liked:Set, saved:Set}
+// (не тянем всю таблицу лайков на каждую страницу ленты)
+async function likedSaved(pb, postIds) {
   const me = authRecord(pb); const liked = new Set(), saved = new Set();
-  if (me) {
-    const ls = await pb.collection('likes').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) });
+  if (me && postIds && postIds.length) {
+    const parts = postIds.map((_, i) => `post={:p${i}}`).join('||');
+    const params = { u: me.id }; postIds.forEach((id, i) => { params['p' + i] = id; });
+    const ls = await pb.collection('likes').getFullList({ filter: pb.filter(`user={:u} && (${parts})`, params) });
     ls.forEach(l => (l.kind === 'save' ? saved : liked).add(l.post));
   }
   return { liked, saved };
@@ -184,7 +187,7 @@ export async function listPosts(opts = {}) {
     }
     const filter = parts.length ? pb.filter(parts.join('&&'), params) : '';
     const res = await pb.collection('posts').getList(page, perPage, { sort: '-created', ...(filter ? { filter } : {}) });
-    const { liked, saved } = await likedSaved(pb);
+    const { liked, saved } = await likedSaved(pb, res.items.map(p => p.id));
     return { items: res.items.map(p => mapPost(p, liked, saved)), hasMore: res.page < res.totalPages };
   }
   const hidden = new Set(load('wyrm.hiddenPosts', []));
@@ -217,7 +220,7 @@ export async function addPost(p) {
       text: p.text, tags: p.tags || [], ref: p.ref || null, community: p.community || null,
       repost_of: p.repostOf || null, like_count: 0, save_count: 0, comment_count: 0, repost_count: 0,
     });
-    if (p.repostOf) { try { const o = await pb.collection('posts').getOne(p.repostOf); await pb.collection('posts').update(p.repostOf, { repost_count: (o.repost_count || 0) + 1 }); } catch (e) {} }
+    if (p.repostOf) { try { await pb.collection('posts').update(p.repostOf, { 'repost_count+': 1 }); } catch (e) {} }
     return mapPost(created);
   }
   const post = { id: uid('u'), ts: Date.now(), reacts: { flame: 0, star: 0 },
@@ -234,15 +237,15 @@ export async function toggleReact(postId, kind = 'like') {
     const me = authRecord(pb);
     if (!me) throw new Error('Нужно войти');
     const field = kind === 'save' ? 'save_count' : 'like_count';
-    const post = await pb.collection('posts').getOne(postId);
     const ex = await pb.collection('likes').getFullList({ filter: pb.filter('post={:p}&&user={:u}&&kind={:k}', { p: postId, u: me.id, k: kind }) });
     if (ex.length) {
       await pb.collection('likes').delete(ex[0].id);
-      await pb.collection('posts').update(postId, { [field]: Math.max(0, (post[field] || 0) - 1) });
+      // атомарный декремент (без read-modify-write — иначе теряются гонки)
+      await pb.collection('posts').update(postId, { [field + '-']: 1 });
       return false;
     }
     await pb.collection('likes').create({ post: postId, user: me.id, kind });
-    await pb.collection('posts').update(postId, { [field]: (post[field] || 0) + 1 });
+    await pb.collection('posts').update(postId, { [field + '+']: 1 });
     return true;
   }
   const likes = load('wyrm.likes', {});
@@ -271,7 +274,7 @@ export async function addComment(postId, text, author) {
     const pb = await pbClient();
     const me = authRecord(pb);
     const created = await pb.collection('comments').create({ post: postId, author: me ? me.id : null, author_handle: author, text });
-    try { const o = await pb.collection('posts').getOne(postId); await pb.collection('posts').update(postId, { comment_count: (o.comment_count || 0) + 1 }); } catch (e) {}
+    try { await pb.collection('posts').update(postId, { 'comment_count+': 1 }); } catch (e) {}
     return { id: created.id, author: created.author_handle, text: created.text, ts: Date.parse(created.created) || Date.now() };
   }
   const all = load('wyrm.comments', {});
@@ -322,15 +325,14 @@ export async function toggleJoin(id) {
     const pb = await pbClient();
     const me = authRecord(pb);
     if (!me) throw new Error('Нужно войти');
-    const com = await pb.collection('communities').getOne(id).catch(() => null);
     const ex = await pb.collection('memberships').getFullList({ filter: pb.filter('community={:c}&&user={:u}', { c: id, u: me.id }) });
     if (ex.length) {
       await pb.collection('memberships').delete(ex[0].id);
-      if (com) await pb.collection('communities').update(id, { member_count: Math.max(0, (com.member_count || 1) - 1) });
+      try { await pb.collection('communities').update(id, { 'member_count-': 1 }); } catch (e) {}
       return false;
     }
     await pb.collection('memberships').create({ community: id, user: me.id });
-    if (com) await pb.collection('communities').update(id, { member_count: (com.member_count || 0) + 1 });
+    try { await pb.collection('communities').update(id, { 'member_count+': 1 }); } catch (e) {}
     return true;
   }
   const j = load('wyrm.memberships', []);
@@ -472,7 +474,7 @@ export async function addNode(node) {
     const pb = await pbClient();
     const me = authRecord(pb);
     let storyId = node.story;
-    if (storyId && !/^[a-z0-9]{15}$/.test(storyId)) { // got a slug → resolve to record id
+    if (storyId) { // всегда пробуем как slug → если нашли, берём record id; иначе это уже id
       const st = await pb.collection('stories').getFirstListItem(pb.filter('slug={:s}', { s: storyId })).catch(() => null);
       if (st) storyId = st.id;
     }
@@ -592,14 +594,20 @@ export function saveWorkspaceCfg(cfg) {
   save('wyrm.workspace', cfg);            // мгновенно — локально
   if (enabled) syncActiveDesk(cfg);        // и best-effort синк в аккаунт
 }
-// upsert активной раскладки в аккаунт (между устройствами)
-async function syncActiveDesk(cfg) {
-  try {
-    const pb = await pbClient(); const me = authRecord(pb); if (!me) return;
-    const ex = await pb.collection('workspace_presets').getFullList({ filter: pb.filter("user={:u} && name={:n}", { u: me.id, n: ACTIVE_DESK }) });
-    if (ex.length) await pb.collection('workspace_presets').update(ex[0].id, { cfg });
-    else await pb.collection('workspace_presets').create({ user: me.id, name: ACTIVE_DESK, cfg });
-  } catch (e) {}
+// upsert активной раскладки в аккаунт (между устройствами).
+// Сериализуем вызовы в цепочку: иначе два быстрых тогла прочитают «пусто»
+// одновременно и создадут два дубля __active__ (read→create гонка).
+let _deskSync = Promise.resolve();
+function syncActiveDesk(cfg) {
+  _deskSync = _deskSync.then(async () => {
+    try {
+      const pb = await pbClient(); const me = authRecord(pb); if (!me) return;
+      const ex = await pb.collection('workspace_presets').getFullList({ filter: pb.filter("user={:u} && name={:n}", { u: me.id, n: ACTIVE_DESK }) });
+      if (ex.length) await pb.collection('workspace_presets').update(ex[0].id, { cfg });
+      else await pb.collection('workspace_presets').create({ user: me.id, name: ACTIVE_DESK, cfg });
+    } catch (e) {}
+  });
+  return _deskSync;
 }
 // загрузить активную раскладку из аккаунта (PB), иначе null
 export async function loadWorkspaceCfgRemote() {

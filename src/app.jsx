@@ -2631,10 +2631,20 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const cardRef = useRef(null);
-  // a11y: Escape закрывает, фокус уходит на первое поле при открытии
+  // a11y: Escape закрывает, фокус ловится внутри модалки (Tab циклится)
   useEffect(() => {
     if (!open) return;
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const focusables = () => cardRef.current
+      ? [...cardRef.current.querySelectorAll('button, input, [href], select, textarea, [tabindex]:not([tabindex="-1"])')].filter(el => !el.disabled && el.offsetParent !== null)
+      : [];
+    const onKey = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab') return;
+      const f = focusables(); if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     document.addEventListener('keydown', onKey);
     const t = setTimeout(() => { const el = cardRef.current && cardRef.current.querySelector('input'); if (el) el.focus(); }, 40);
     return () => { document.removeEventListener('keydown', onKey); clearTimeout(t); };
@@ -3010,8 +3020,18 @@ function useFeed(filter = {}) {
     setLoadingMore(false);
   };
 
-  const addPost = async (p) => { const np = await store.addPost(p); setPosts(l => [np, ...l]); return np; };
-  const repostPost = async (post, author) => { const np = await store.repost(post, author); setPosts(l => [np, ...l]); return np; };
+  // показываем новый пост оптимистично ТОЛЬКО если он подходит активному фильтру
+  // (иначе на вкладке «Голоса»/«Ветви»/«Подписки» он мелькнул бы и исчез)
+  const matchesFilter = (np) => {
+    const f = JSON.parse(key);
+    if (f.kind && np.kind !== f.kind) return false;
+    if (f.community && np.community !== f.community) return false;
+    if (f.authorHandle && np.author !== f.authorHandle) return false;
+    if (f.authors && !f.authors.includes(np.author)) return false;
+    return true;
+  };
+  const addPost = async (p) => { const np = await store.addPost(p); if (matchesFilter(np)) setPosts(l => [np, ...l]); return np; };
+  const repostPost = async (post, author) => { const np = await store.repost(post, author); if (matchesFilter(np)) setPosts(l => [np, ...l]); return np; };
   const removePost = async (id) => { setPosts(l => l.filter(p => p.id !== id)); try { await store.deletePost(id); } catch (e) {} };
 
   // optimistic like/save toggle
@@ -3517,12 +3537,19 @@ function CommunityDetail({ go, ctx, user }) {
   const ref = useReveal();
   const { communities, joined, toggleJoin } = useCommunities();
   // лента сообщества — серверный фильтр по community (масштабируемо)
-  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore } = useFeed({ community: ctx.communityId });
+  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore, loading: feedLoading } = useFeed({ community: ctx.communityId });
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
   const [allStories, setAllStories] = useState(() => (window.WYRM.STORIES || []).slice());
   useEffect(() => { let on = true; store.listStories().then(s => { if (on && s && s.length) setAllStories(s); }); return () => { on = false; }; }, []);
-  const c = communities.find(x => x.id === ctx.communityId) || communities[0];
-  if (!c) return null;
+  // без подмены на communities[0]: иначе фильтр ленты (по ctx.communityId) и
+  // постинг (по c.id) разойдутся, и юзер запостит не туда
+  const c = communities.find(x => x.id === ctx.communityId);
+  if (!c) return communities.length ? (
+    <div className="view wrap" style={{ padding: '14vh 0', textAlign: 'center' }}>
+      <p className="serif-italic" style={{ color: 'var(--ink-2)', marginBottom: 16 }}>Сообщество не найдено.</p>
+      <button className="btn btn-ghost" onClick={() => go('communities')}>Все сообщества</button>
+    </div>
+  ) : null;
   const isJoined = joined.includes(c.id);
   // книги сообщества: из сид-списка ИЛИ с явной связью story.community
   const stories = allStories.filter(s => (c.stories || []).includes(s.id) || s.community === c.id);
@@ -3592,9 +3619,11 @@ function CommunityDetail({ go, ctx, user }) {
           <FeedComposer user={user} onPost={(p) => addPost({ ...p, community: c.id })} go={go}
             placeholder={'Написать в «' + c.name + '»…'} defaultKind="discuss" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            {feed.length === 0
-              ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '30px 0' }}>Будь первым, кто начнёт разговор здесь.</p>
-              : feed.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
+            {feedLoading
+              ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '30px 0' }}>{t('common.loading')}</p>
+              : feed.length === 0
+                ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '30px 0' }}>Будь первым, кто начнёт разговор здесь.</p>
+                : feed.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
           </div>
           {hasMore && (
             <div style={{ textAlign: 'center', marginTop: 20 }}>
@@ -3612,7 +3641,7 @@ function Profile({ go, user }) {
   const ref = useReveal();
   // мои посты — серверный фильтр по автору (масштабируемо); без логина — пусто
   const myHandle = user ? (user.handle || user.name) : '';
-  const { posts, toggleReact, repostPost, removePost, hasMore, loadMore, loadingMore } = useFeed(user ? { authorHandle: myHandle } : { authors: [] });
+  const { posts, toggleReact, repostPost, removePost, hasMore, loadMore, loadingMore, loading: feedLoading } = useFeed(user ? { authorHandle: myHandle } : { authors: [] });
   const { communities, joined } = useCommunities();
   const [stories, setStories] = useState([]);
   const [tab, setTab] = useState('books');
@@ -3678,7 +3707,9 @@ function Profile({ go, user }) {
             </div>
       )}
       {tab === 'posts' && (
-        myPosts.length === 0
+        feedLoading
+          ? <p className="mono" style={{ color: 'var(--ink-3)' }}>{t('common.loading')}</p>
+          : myPosts.length === 0
           ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Постов пока нет.</p>
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 720 }}>
               {myPosts.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
