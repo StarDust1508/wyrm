@@ -14,7 +14,8 @@
    в обоих режимах. Смена бэкенда не затрагивает остальной код.
    ============================================================ */
 
-const PB_URL = import.meta.env.VITE_PB_URL;
+// guard: под Vite import.meta.env — объект; под голым node (юнит-тесты) — undefined.
+const PB_URL = (import.meta.env ? import.meta.env.VITE_PB_URL : '') || '';
 export const enabled = !!PB_URL;
 
 let _pb = null;
@@ -131,21 +132,45 @@ function decorate(list, likes, comments) {
   }));
 }
 
-// Пагинация: страница page (с 1), perPage записей. Возвращает { items, hasMore }.
-export async function listPosts(page = 1, perPage = 20) {
+// мои лайки/закладки одним проходом → {liked:Set, saved:Set}
+async function likedSaved(pb) {
+  const me = authRecord(pb); const liked = new Set(), saved = new Set();
+  if (me) {
+    const ls = await pb.collection('likes').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) });
+    ls.forEach(l => (l.kind === 'save' ? saved : liked).add(l.post));
+  }
+  return { liked, saved };
+}
+
+// Единый постраничный + СЕРВЕРНО-фильтруемый список ленты.
+// opts: { page, perPage, kind, community, authorHandle, authors[] }
+//   authors=[] трактуется как «никто» (пустая вкладка «Подписки», не вся лента).
+// Возвращает { items, hasMore }.
+export async function listPosts(opts = {}) {
+  const { page = 1, perPage = 20, kind, community, authorHandle, authors } = opts;
+  if (authors && authors.length === 0) return { items: [], hasMore: false };
   if (enabled) {
     const pb = await pbClient();
-    const res = await pb.collection('posts').getList(page, perPage, { sort: '-created' });
-    let liked = new Set(), saved = new Set();
-    const me = authRecord(pb);
-    if (me) {
-      const ls = await pb.collection('likes').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) });
-      ls.forEach(l => (l.kind === 'save' ? saved : liked).add(l.post));
+    const parts = [], params = {};
+    if (kind) { parts.push('kind={:k}'); params.k = kind; }
+    if (community) { parts.push('community={:c}'); params.c = community; }
+    if (authorHandle) { parts.push('author_handle={:a}'); params.a = authorHandle; }
+    if (authors && authors.length) {
+      parts.push('(' + authors.map((_, i) => `author_handle={:au${i}}`).join('||') + ')');
+      authors.forEach((h, i) => { params['au' + i] = h; });
     }
+    const filter = parts.length ? pb.filter(parts.join('&&'), params) : '';
+    const res = await pb.collection('posts').getList(page, perPage, { sort: '-created', ...(filter ? { filter } : {}) });
+    const { liked, saved } = await likedSaved(pb);
     return { items: res.items.map(p => mapPost(p, liked, saved)), hasMore: res.page < res.totalPages };
   }
   const hidden = new Set(load('wyrm.hiddenPosts', []));
-  const all = decorate(localPosts().filter(p => !hidden.has(p.id)), load('wyrm.likes', {}), load('wyrm.comments', {}));
+  let all = localPosts().filter(p => !hidden.has(p.id));
+  if (kind) all = all.filter(p => p.kind === kind);
+  if (community) all = all.filter(p => p.community === community);
+  if (authorHandle) all = all.filter(p => p.author === authorHandle);
+  if (authors) all = all.filter(p => authors.includes(p.author));
+  all = decorate(all, load('wyrm.likes', {}), load('wyrm.comments', {}));
   const start = (page - 1) * perPage;
   return { items: all.slice(start, start + perPage), hasMore: start + perPage < all.length };
 }

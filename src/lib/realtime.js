@@ -20,7 +20,7 @@
        queue:[id], directions:[{id,text,votes}], reacts:{flame,star} }
    ============================================================ */
 
-const RT_URL = import.meta.env.VITE_RT_URL;
+const RT_URL = (import.meta.env ? import.meta.env.VITE_RT_URL : '') || '';
 export const rtEnabled = !!RT_URL;
 
 /* ---------- боевой клиент: настоящий WebSocket ---------- */

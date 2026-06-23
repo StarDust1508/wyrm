@@ -108,6 +108,33 @@ function restoreAuthor(e, dao, collection) {
   } catch (_) {}
 }
 
+// Per-user create rate limits (anti-spam). max records / windowSec per author.
+const RATE = {
+  posts:    { max: 8,  windowSec: 60, authorField: "author" },
+  comments: { max: 20, windowSec: 60, authorField: "author" },
+};
+function rateLimit(e, dao, collection) {
+  if (isAdminRequest(e)) return;
+  const cfg = RATE[collection];
+  if (!cfg) return;
+  const uid = requesterId(e);
+  if (!uid) return;
+  const sinceIso = new Date(Date.now() - cfg.windowSec * 1000).toISOString().replace("T", " ");
+  try {
+    const rows = dao.findRecordsByFilter(
+      collection,
+      cfg.authorField + " = {:u} && created >= {:t}",
+      "", 0, 0, { u: uid, t: sinceIso }
+    );
+    if (rows && rows.length >= cfg.max) {
+      throw new BadRequestError("Слишком часто. Подожди немного и попробуй снова.");
+    }
+  } catch (err) {
+    if (err instanceof BadRequestError) throw err; // propagate the limit
+    // any query error → don't block (fail open on the limiter itself)
+  }
+}
+
 // Hard ceiling for a single vote's weight regardless of reputation.
 const HARD_WEIGHT_CAP = 1000;
 
@@ -188,40 +215,51 @@ function sumVoteWeightForNode(dao, nodeId) {
 }
 
 // ----------------------------------------------------------------------------
-// HTML sanitation (best-effort, server-side; DOMPurify is unavailable here)
+// HTML sanitation (server-side defense-in-depth; DOMPurify unavailable here)
 // ----------------------------------------------------------------------------
 //
-// This is a blocklist scrub, not a true parser. It removes the high-risk
-// vectors: <script>/<style>/<iframe>/<object>/<embed> blocks, on* event
-// handler attributes, and javascript:/vbscript:/data:text-html URLs.
-// The client still renders through DOMPurify, so this is defense-in-depth.
+// ALLOWLIST scrub (strictly stronger than a blocklist): drop any tag not in
+// ALLOWED_TAGS, and strip ALL attributes except a vetted href on <a>. This
+// removes on*-handlers, style, srcset, unknown elements, etc. without having
+// to enumerate every dangerous vector. The client still renders through
+// DOMPurify, which remains the authoritative guard.
+
+var ALLOWED_TAGS = {
+  p: 1, br: 1, b: 1, strong: 1, i: 1, em: 1, u: 1, s: 1, blockquote: 1,
+  ul: 1, ol: 1, li: 1, h1: 1, h2: 1, h3: 1, h4: 1, a: 1, code: 1, pre: 1, hr: 1,
+};
+
+function safeHref(attrs) {
+  var m = attrs.match(/\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i);
+  if (!m) return "";
+  var url = (m[2] || m[3] || m[4] || "").trim();
+  if (/^\s*(javascript|vbscript|data)\s*:/i.test(url)) return "";   // dangerous schemes
+  if (!/^(https?:\/\/|\/|#|mailto:)/i.test(url)) return "";          // allow only safe forms
+  return url.replace(/"/g, "&quot;");
+}
 
 function sanitizeHtml(html) {
   if (!html || typeof html !== "string") return "";
-  let out = html;
+  var out = html;
 
-  // Remove whole dangerous element blocks (open tag .. close tag), case-insensitive.
-  const blockTags = ["script", "style", "iframe", "object", "embed", "noscript"];
-  for (let i = 0; i < blockTags.length; i++) {
-    const t = blockTags[i];
-    // <tag ...> ... </tag>
-    out = out.replace(new RegExp("<" + t + "\\b[\\s\\S]*?<\\/" + t + "\\s*>", "gi"), "");
-    // stray/self-closing/orphan open or close tags of the same kind
-    out = out.replace(new RegExp("<\\/?" + t + "\\b[^>]*>", "gi"), "");
+  // 1) remove whole dangerous element blocks WITH their content.
+  var blockTags = ["script", "style", "iframe", "object", "embed", "noscript", "template", "svg", "math"];
+  for (var i = 0; i < blockTags.length; i++) {
+    out = out.replace(new RegExp("<" + blockTags[i] + "\\b[\\s\\S]*?<\\/" + blockTags[i] + "\\s*>", "gi"), "");
   }
 
-  // Drop inline event-handler attributes: on*="..." | on*='...' | on*=bare
-  out = out.replace(/\son[a-z0-9_-]+\s*=\s*"[^"]*"/gi, "");
-  out = out.replace(/\son[a-z0-9_-]+\s*=\s*'[^']*'/gi, "");
-  out = out.replace(/\son[a-z0-9_-]+\s*=\s*[^\s>]+/gi, "");
-
-  // Neutralize dangerous URL schemes inside href/src/srcset/style etc.
-  // (handles optional whitespace and HTML entities between the scheme chars)
-  const schemeRe = /(=\s*["']?\s*)(?:javascript|vbscript|data\s*:\s*text\/html|data\s*:\s*image\/svg\+xml)\s*:/gi;
-  out = out.replace(schemeRe, "$1#");
-
-  // Catch entity-encoded "javascript:" forms (e.g. java&#115;cript:)
-  out = out.replace(/j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t\s*:/gi, "");
+  // 2) allowlist pass: keep only ALLOWED_TAGS; strip every attribute except a
+  //    vetted href on <a>. Unknown tags are removed (their text content stays).
+  out = out.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, function (m, slash, name, attrs) {
+    var tag = name.toLowerCase();
+    if (!ALLOWED_TAGS[tag]) return "";
+    if (slash) return "</" + tag + ">";
+    if (tag === "a") {
+      var href = safeHref(attrs);
+      return href ? '<a href="' + href + '" rel="noopener nofollow" target="_blank">' : "<a>";
+    }
+    return "<" + tag + ">";
+  });
 
   return out;
 }
@@ -288,6 +326,22 @@ function createNotification(dao, userId, kind, ref) {
   }
 }
 
+// Dedup canon notifications: a node that flaps in/out of canon must not spam a
+// fresh "→ canon" row each time it re-enters. True if the author already has a
+// canon notification for this node.
+function hasCanonNotif(dao, userId, nodeId) {
+  if (!userId || !nodeId) return false;
+  try {
+    const rows = dao.findRecordsByFilter("notifications", "user={:u} && kind='canon'", "-created", 100, 0, { u: userId });
+    for (let i = 0; i < rows.length; i++) {
+      let ref = rows[i].get("ref");
+      if (typeof ref === "string") { try { ref = JSON.parse(ref); } catch (_) { ref = {}; } }
+      if (ref && ref.node === nodeId) return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
 // Recompute the WHOLE canon path of a story ("лидер среди сиблингов", greedy
 // from the leader root down) and apply canon flips + symmetric reputation.
 // This is the authoritative mirror of the client's store.canonPath, and unlike
@@ -335,7 +389,9 @@ function recomputeStoryCanon(dao, storyId) {
     n.set("canon", shouldBe);
     dao.saveRecord(n);
     adjustRep(dao, n.getString("author"), shouldBe ? REPUTATION_REWARD : -REPUTATION_REWARD);
-    if (shouldBe) createNotification(dao, n.getString("author"), "canon", { text: "Твоя глава вошла в канон ✦", node: n.getId() });
+    if (shouldBe && !hasCanonNotif(dao, n.getString("author"), n.getId())) {
+      createNotification(dao, n.getString("author"), "canon", { text: "Твоя глава вошла в канон ✦", node: n.getId() });
+    }
   }
 }
 
@@ -503,6 +559,7 @@ onRecordBeforeUpdateRequest((e) => {
 // hook above.) Bind the owner to the requester; admin/seed are exempt.
 
 onRecordBeforeCreateRequest((e) => {
+  rateLimit(e, $app.dao(), "posts"); // throws BadRequestError if over the limit
   try { forceAuthor(e, $app.dao()); } catch (err) { logErr("onRecordBeforeCreateRequest(posts)", err); }
 }, "posts");
 
@@ -511,6 +568,7 @@ onRecordBeforeCreateRequest((e) => {
 }, "stories");
 
 onRecordBeforeCreateRequest((e) => {
+  rateLimit(e, $app.dao(), "comments"); // throws BadRequestError if over the limit
   try { forceAuthor(e, $app.dao()); } catch (err) { logErr("onRecordBeforeCreateRequest(comments)", err); }
 }, "comments");
 

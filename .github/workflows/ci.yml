@@ -1,0 +1,29 @@
+name: CI
+
+# Build + unit tests on every push/PR. Deploy lives in deploy.yml.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Unit tests (pure libs)
+        run: npm test
+      - name: Syntax-check server artifacts (PocketBase hooks/migration, realtime, seed)
+        run: |
+          node --check pocketbase/pb_hooks/wyrm.pb.js
+          node --check pocketbase/pb_migrations/1719000000_wyrm_init.js
+          node --check realtime/server.js
+          node --check scripts/seed.mjs
+      - name: Production build
+        run: npm run build

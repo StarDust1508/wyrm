@@ -1041,14 +1041,15 @@ function Compose({ go, ctx, setCtx }) {
   // пока listNodes не подгрузился — без этого useState(parent.tags) уронит экран (M3).
   const parent = byId[ctx.forkFrom] || byId['A1a'] || NODES.find(n => !n.parent) || NODES[0]
     || { id: '', title: '', excerpt: '', tags: [], chars: {} };
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  // оффлайн-черновик: восстанавливаем title/body/synopsis из localStorage
+  const [title, setTitle] = useState(() => wyrmLoad('wyrm.draft', {}).title || '');
+  const [body, setBody] = useState(() => wyrmLoad('wyrm.draft', {}).body || '');
   const [tags, setTags] = useState(parent.tags.slice(0, 2));
   const [chars, setChars] = useState({ ...parent.chars });
   const [done, setDone] = useState(false);
   const [newId, setNewId] = useState(null);
   const [mode, setMode] = useState(ctx.forkFrom ? 'fork' : 'newbook'); // 'newbook' | 'fork'
-  const [synopsis, setSynopsis] = useState('');
+  const [synopsis, setSynopsis] = useState(() => wyrmLoad('wyrm.draft', {}).synopsis || '');
   const [bookId, setBookId] = useState(null);
   const [community, setCommunity] = useState(ctx.community || '');
   const [cover, setCover] = useState('');
@@ -1071,8 +1072,11 @@ function Compose({ go, ctx, setCtx }) {
   const savePreset = async () => { const name = (typeof prompt !== 'undefined') && prompt('Название раскладки'); if (!name) return; await store.saveWorkspacePreset(name, desk); setPresets(p => [...p.filter(x => x.name !== name), { name, cfg: { ...desk } }]); };
   const saveNotes = (v) => { setNotes(v); wyrmSave('wyrm.draftNotes', v); };
   const goalPct = desk.goal ? Math.min(100, Math.round(words / desk.goal * 100)) : 0;
+  // автосейв черновика главы (тело больше не теряется при перезагрузке — T4)
+  useEffect(() => { wyrmSave('wyrm.draft', { title, body, synopsis }); }, [title, body, synopsis]);
+  const clearDraft = () => wyrmSave('wyrm.draft', {});
   const slug = (s) => (s || '').toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kniga';
-  const resetForm = () => { setDone(false); setTitle(''); setBody(''); setSynopsis(''); setNewId(null); setBookId(null); };
+  const resetForm = () => { clearDraft(); setDone(false); setTitle(''); setBody(''); setSynopsis(''); setNewId(null); setBookId(null); };
 
   // Start a brand-new book: create the story + its root chapter through the store.
   const publishBook = async () => {
@@ -1088,7 +1092,7 @@ function Compose({ go, ctx, setCtx }) {
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, html: cleanHtml(body), chars: {} };
     try {
       await store.createStory(story, root);
-      setBookId(id); setNewId(root.id); setDone(true);
+      clearDraft(); setBookId(id); setNewId(root.id); setDone(true);
     } catch (e) { wyrmErr(e, 'Не удалось опубликовать книгу.'); }
   };
 
@@ -1120,7 +1124,7 @@ function Compose({ go, ctx, setCtx }) {
     };
     try {
       await store.addNode(node);
-      setNewId(node.id);
+      clearDraft(); setNewId(node.id);
       setDone(true);
     } catch (e) { wyrmErr(e, 'Не удалось опубликовать ветвь.'); }
   };
@@ -2948,11 +2952,12 @@ const FEED_KINDS = {
   post:    { icon: 'quill', label: 'запись' },
 };
 
-/* ---- общий стейт ленты через единый слой данных (store) ---- */
-// opts.all=true — загрузить все страницы (для отфильтрованных вьюх: сообщество,
-// профиль — они фильтруют ленту клиентом). По умолчанию — постранично + «ещё».
-function useFeed(opts = {}) {
-  const all = !!opts.all;
+/* ---- общий стейт ленты через единый слой данных (store) ----
+   filter: { kind?, community?, authorHandle?, authors[] } — фильтрация и
+   пагинация идут на СЕРВЕРЕ (store.listPosts); смена фильтра рефетчит c 1-й
+   страницы. authors:[] = пустая вкладка (никого). */
+function useFeed(filter = {}) {
+  const key = JSON.stringify(filter || {});
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -2960,37 +2965,16 @@ function useFeed(opts = {}) {
   const [loadingMore, setLoadingMore] = useState(false);
   useEffect(() => {
     let on = true; setLoading(true);
-    (async () => {
-      try {
-        if (all) {
-          let pg = 1, acc = [], more = true, guard = 0;
-          while (more && guard++ < 100) { const r = await store.listPosts(pg); if (!on) return; acc = acc.concat(r.items); more = r.hasMore; pg++; }
-          if (on) { setPosts(acc); setHasMore(false); setLoading(false); }
-        } else {
-          const r = await store.listPosts(1); if (on) { setPosts(r.items); setHasMore(r.hasMore); setPage(1); setLoading(false); }
-        }
-      } catch (e) { if (on) { setLoading(false); wyrmErr(e, 'Не удалось загрузить ленту.'); } }
-    })();
+    store.listPosts({ ...JSON.parse(key), page: 1 })
+      .then(r => { if (on) { setPosts(r.items); setHasMore(r.hasMore); setPage(1); setLoading(false); } })
+      .catch(e => { if (on) { setLoading(false); wyrmErr(e, 'Не удалось загрузить ленту.'); } });
     return () => { on = false; };
-  }, []);
+  }, [key]);
   const loadMore = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    try { const r = await store.listPosts(page + 1); setPosts(l => [...l, ...r.items]); setPage(p => p + 1); setHasMore(r.hasMore); }
+    try { const r = await store.listPosts({ ...JSON.parse(key), page: page + 1 }); setPosts(l => [...l, ...r.items]); setPage(p => p + 1); setHasMore(r.hasMore); }
     catch (e) { wyrmErr(e, 'Не удалось загрузить ещё.'); }
-    setLoadingMore(false);
-  };
-  // Догрузить ВСЕ оставшиеся страницы (для фильтров, которые отбирают по уже
-  // загруженным постам — иначе совпадения со 2-й+ страницы были бы невидимы).
-  const loadAll = async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    try {
-      let pg = page, more = hasMore, acc = [], guard = 0;
-      while (more && guard++ < 100) { const r = await store.listPosts(pg + 1); acc = acc.concat(r.items); more = r.hasMore; pg++; }
-      if (acc.length) setPosts(l => [...l, ...acc]);
-      setPage(pg); setHasMore(false);
-    } catch (e) { wyrmErr(e, 'Не удалось загрузить ленту.'); }
     setLoadingMore(false);
   };
 
@@ -3007,7 +2991,7 @@ function useFeed(opts = {}) {
     try { await store.toggleReact(id, kind); }
     catch (e) { setPosts(l => l.map(p => p.id === id ? flip(p, kind) : p)); } // revert
   };
-  return { posts, loading, hasMore, loadMore, loadAll, loadingMore, addPost, repostPost, toggleReact, removePost };
+  return { posts, loading, hasMore, loadMore, loadingMore, addPost, repostPost, toggleReact, removePost };
 }
 
 /* поле ввода нового поста */
@@ -3306,19 +3290,17 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
 /* ---------------- ЛЕНТА ---------------- */
 function Feed({ go, user }) {
   const ref = useReveal();
-  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadAll, loadingMore } = useFeed();
   const { communities } = useCommunities();
   const comName = (id) => (communities.find(c => c.id === id) || {}).name;
   const [filter, setFilter] = useState('all');
-  // не-«Всё» фильтруется клиентом по загруженным постам — догружаем всё, иначе
-  // совпадения со 2-й+ страницы (напр. пост подписки) были бы невидимы (H2).
-  useEffect(() => { if (filter !== 'all' && hasMore) loadAll(); }, [filter, hasMore]);
   const [following, setFollowing] = useState([]);
   useEffect(() => { let on = true; store.listFollowing().then(f => { if (on) setFollowing(f || []); }); return () => { on = false; }; }, []);
+  // фильтрация и пагинация — на сервере (см. useFeed/listPosts)
+  const feedFilter = filter === 'all' ? {} : filter === 'following' ? { authors: following } : { kind: filter };
+  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore, loading } = useFeed(feedFilter);
   const onFollow = async (h) => { const r = await store.toggleFollow(h); setFollowing(f => r ? [...new Set([...f, h])] : f.filter(x => x !== h)); };
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
   const kinds = [['all', 'Всё'], ['following', 'Подписки'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
-  const list = posts.filter(p => filter === 'all' ? true : filter === 'following' ? following.includes(p.author) : p.kind === filter);
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
@@ -3336,11 +3318,13 @@ function Feed({ go, user }) {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {list.length === 0
-          ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>{filter === 'following' ? 'Тут появятся посты тех, на кого ты подписан.' : 'Пока тут тихо. Напиши первым.'}</p>
-          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} communityName={comName(p.community)} following={following} onFollow={onFollow} />)}
+        {loading
+          ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>Загрузка…</p>
+          : posts.length === 0
+            ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>{filter === 'following' ? 'Тут появятся посты тех, на кого ты подписан.' : 'Пока тут тихо. Напиши первым.'}</p>
+            : posts.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} communityName={comName(p.community)} following={following} onFollow={onFollow} />)}
       </div>
-      {filter === 'all' && hasMore && (
+      {hasMore && (
         <div style={{ textAlign: 'center', marginTop: 24 }}>
           <button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>
             {loadingMore ? 'Загружаю…' : 'Показать ещё'}
@@ -3500,7 +3484,8 @@ function CommunityCreate({ user, onClose, onCreate, go }) {
 function CommunityDetail({ go, ctx, user }) {
   const ref = useReveal();
   const { communities, joined, toggleJoin } = useCommunities();
-  const { posts, addPost, repostPost, toggleReact, removePost } = useFeed({ all: true });
+  // лента сообщества — серверный фильтр по community (масштабируемо)
+  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore } = useFeed({ community: ctx.communityId });
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
   const [allStories, setAllStories] = useState(() => (window.WYRM.STORIES || []).slice());
   useEffect(() => { let on = true; store.listStories().then(s => { if (on && s && s.length) setAllStories(s); }); return () => { on = false; }; }, []);
@@ -3509,7 +3494,7 @@ function CommunityDetail({ go, ctx, user }) {
   const isJoined = joined.includes(c.id);
   // книги сообщества: из сид-списка ИЛИ с явной связью story.community
   const stories = allStories.filter(s => (c.stories || []).includes(s.id) || s.community === c.id);
-  const feed = posts.filter(p => p.community === c.id || (p.ref && stories.some(s => s.id === p.ref.story)));
+  const feed = posts; // отфильтровано сервером по сообществу
   const canManage = user && (user.role === 'moderator' || c.owner === (user.handle || user.name));
   const removeCommunity = async () => { if (confirm('Удалить сообщество?')) { try { await store.deleteCommunity(c.id); go('communities'); } catch (e) { wyrmErr(e, 'Не удалось удалить сообщество.'); } } };
 
@@ -3579,6 +3564,11 @@ function CommunityDetail({ go, ctx, user }) {
               ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '30px 0' }}>Будь первым, кто начнёт разговор здесь.</p>
               : feed.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
           </div>
+          {hasMore && (
+            <div style={{ textAlign: 'center', marginTop: 20 }}>
+              <button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Загружаю…' : 'Показать ещё'}</button>
+            </div>
+          )}
         </section>
       </div>
     </div>
@@ -3588,7 +3578,9 @@ function CommunityDetail({ go, ctx, user }) {
 /* ---------------- ПРОФИЛЬ ---------------- */
 function Profile({ go, user }) {
   const ref = useReveal();
-  const { posts, toggleReact, repostPost, removePost } = useFeed({ all: true });
+  // мои посты — серверный фильтр по автору (масштабируемо); без логина — пусто
+  const myHandle = user ? (user.handle || user.name) : '';
+  const { posts, toggleReact, repostPost, removePost, hasMore, loadMore, loadingMore } = useFeed(user ? { authorHandle: myHandle } : { authors: [] });
   const { communities, joined } = useCommunities();
   const [stories, setStories] = useState([]);
   const [tab, setTab] = useState('books');
@@ -3606,7 +3598,7 @@ function Profile({ go, user }) {
   }
   const handle = user.handle || user.name;
   const myStories = stories.filter(s => s.author === handle);
-  const myPosts = posts.filter(p => p.author === handle);
+  const myPosts = posts; // отфильтровано сервером по автору
   const myCommunities = communities.filter(c => joined.includes(c.id));
   const doRepost = (post) => repostPost(post, handle);
   const stat = (n, l) => (<div><div className="display" style={{ fontSize: '1.6rem' }}>{n}</div><div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{l}</div></div>);
@@ -3658,6 +3650,7 @@ function Profile({ go, user }) {
           ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Постов пока нет.</p>
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 720 }}>
               {myPosts.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
+              {hasMore && <div style={{ textAlign: 'center', marginTop: 6 }}><button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Загружаю…' : 'Показать ещё'}</button></div>}
             </div>
       )}
       {tab === 'communities' && (
