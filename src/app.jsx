@@ -1052,7 +1052,8 @@ function Compose({ go, ctx, setCtx }) {
   const [bookId, setBookId] = useState(null);
   const [community, setCommunity] = useState(ctx.community || '');
   const [cover, setCover] = useState('');
-  const pickCover = async (file) => { if (file) try { setCover(await store.fileToDataURL(file)); } catch (e) {} };
+  const [coverFile, setCoverFile] = useState(null);
+  const pickCover = async (file) => { if (!file) return; setCoverFile(file); try { setCover(await store.fileToDataURL(file)); } catch (e) {} };
   const [communities, setCommunities] = useState([]);
   useEffect(() => { let on = true; store.listCommunities().then(r => { if (on) setCommunities(r.communities || []); }); return () => { on = false; }; }, []);
   const plain = htmlToText(body);
@@ -1081,7 +1082,7 @@ function Compose({ go, ctx, setCtx }) {
     const author = (me && (me.handle || me.name)) || 'аноним';
     const id = slug(title) + '-' + Date.now().toString(36).slice(-4);
     const story = { id, slug: id, title: title.trim(), author, synopsis: synopsis.trim() || (text.length > 140 ? text.slice(0, 140) + '…' : text),
-      contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false, community: community || null, cover: cover || null };
+      contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false, community: community || null, cover: cover || null, coverFile };
     const root = { id: id + '-root', parent: null, story: id, title: 'Глава 1', author,
       canon: true, score: 0.5, votes: 0, words, tags: story.tags,
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, html: cleanHtml(body), chars: {} };
@@ -2948,14 +2949,37 @@ const FEED_KINDS = {
 };
 
 /* ---- общий стейт ленты через единый слой данных (store) ---- */
-function useFeed() {
+// opts.all=true — загрузить все страницы (для отфильтрованных вьюх: сообщество,
+// профиль — они фильтруют ленту клиентом). По умолчанию — постранично + «ещё».
+function useFeed(opts = {}) {
+  const all = !!opts.all;
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   useEffect(() => {
-    let on = true;
-    store.listPosts().then(p => { if (on) { setPosts(p); setLoading(false); } });
+    let on = true; setLoading(true);
+    (async () => {
+      try {
+        if (all) {
+          let pg = 1, acc = [], more = true, guard = 0;
+          while (more && guard++ < 100) { const r = await store.listPosts(pg); if (!on) return; acc = acc.concat(r.items); more = r.hasMore; pg++; }
+          if (on) { setPosts(acc); setHasMore(false); setLoading(false); }
+        } else {
+          const r = await store.listPosts(1); if (on) { setPosts(r.items); setHasMore(r.hasMore); setPage(1); setLoading(false); }
+        }
+      } catch (e) { if (on) { setLoading(false); wyrmErr(e, 'Не удалось загрузить ленту.'); } }
+    })();
     return () => { on = false; };
   }, []);
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try { const r = await store.listPosts(page + 1); setPosts(l => [...l, ...r.items]); setPage(p => p + 1); setHasMore(r.hasMore); }
+    catch (e) { wyrmErr(e, 'Не удалось загрузить ещё.'); }
+    setLoadingMore(false);
+  };
 
   const addPost = async (p) => { const np = await store.addPost(p); setPosts(l => [np, ...l]); return np; };
   const repostPost = async (post, author) => { const np = await store.repost(post, author); setPosts(l => [np, ...l]); return np; };
@@ -2970,7 +2994,7 @@ function useFeed() {
     try { await store.toggleReact(id, kind); }
     catch (e) { setPosts(l => l.map(p => p.id === id ? flip(p, kind) : p)); } // revert
   };
-  return { posts, loading, addPost, repostPost, toggleReact, removePost };
+  return { posts, loading, hasMore, loadMore, loadingMore, addPost, repostPost, toggleReact, removePost };
 }
 
 /* поле ввода нового поста */
@@ -3269,7 +3293,7 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
 /* ---------------- ЛЕНТА ---------------- */
 function Feed({ go, user }) {
   const ref = useReveal();
-  const { posts, addPost, repostPost, toggleReact, removePost } = useFeed();
+  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore } = useFeed();
   const { communities } = useCommunities();
   const comName = (id) => (communities.find(c => c.id === id) || {}).name;
   const [filter, setFilter] = useState('all');
@@ -3300,6 +3324,13 @@ function Feed({ go, user }) {
           ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>{filter === 'following' ? 'Тут появятся посты тех, на кого ты подписан.' : 'Пока тут тихо. Напиши первым.'}</p>
           : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} communityName={comName(p.community)} following={following} onFollow={onFollow} />)}
       </div>
+      {filter === 'all' && hasMore && (
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>
+            {loadingMore ? 'Загружаю…' : 'Показать ещё'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -3453,7 +3484,7 @@ function CommunityCreate({ user, onClose, onCreate, go }) {
 function CommunityDetail({ go, ctx, user }) {
   const ref = useReveal();
   const { communities, joined, toggleJoin } = useCommunities();
-  const { posts, addPost, repostPost, toggleReact, removePost } = useFeed();
+  const { posts, addPost, repostPost, toggleReact, removePost } = useFeed({ all: true });
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
   const [allStories, setAllStories] = useState(() => (window.WYRM.STORIES || []).slice());
   useEffect(() => { let on = true; store.listStories().then(s => { if (on && s && s.length) setAllStories(s); }); return () => { on = false; }; }, []);
@@ -3541,10 +3572,12 @@ function CommunityDetail({ go, ctx, user }) {
 /* ---------------- ПРОФИЛЬ ---------------- */
 function Profile({ go, user }) {
   const ref = useReveal();
-  const { posts, toggleReact, repostPost, removePost } = useFeed();
+  const { posts, toggleReact, repostPost, removePost } = useFeed({ all: true });
   const { communities, joined } = useCommunities();
   const [stories, setStories] = useState([]);
   const [tab, setTab] = useState('books');
+  const [avatarUrl, setAvatarUrl] = useState((user && user.avatar) || null);
+  const onAvatar = async (file) => { if (!file) return; try { const url = await store.updateAvatar(file); setAvatarUrl(url); } catch (e) { wyrmErr(e, 'Не удалось загрузить аватар.'); } };
   useEffect(() => { let on = true; store.listStories().then(s => { if (on) setStories(s || []); }); return () => { on = false; }; }, []);
   if (!user) {
     return (
@@ -3566,7 +3599,13 @@ function Profile({ go, user }) {
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
       <div className="reveal card framed" style={{ padding: 'clamp(22px,3vw,34px)', marginBottom: 30, display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Avatar name={handle} size={72} />
+        <label title="Сменить аватар" style={{ cursor: 'pointer', position: 'relative', display: 'inline-flex', flex: '0 0 auto' }}>
+          {avatarUrl
+            ? <img src={avatarUrl} alt="аватар" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+            : <Avatar name={handle} size={72} />}
+          <span style={{ position: 'absolute', right: -2, bottom: -2, width: 24, height: 24, borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-ink)', display: 'grid', placeItems: 'center', border: '2px solid var(--bg-2)' }}><Icon name="eye" size={12} /></span>
+          <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onAvatar(e.target.files[0])} />
+        </label>
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <h1 className="display" style={{ fontSize: 'clamp(1.8rem,4vw,2.8rem)' }}>{user.name || handle}</h1>

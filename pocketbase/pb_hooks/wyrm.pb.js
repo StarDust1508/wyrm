@@ -259,6 +259,19 @@ function adjustRep(dao, authorId, delta) {
   }
 }
 
+// Create a notification record for a recipient. notifications.createRule is
+// null (clients can't create), so this programmatic write is the ONLY source.
+function createNotification(dao, userId, kind, ref) {
+  if (!userId) return;
+  try {
+    const col = dao.findCollectionByNameOrId("notifications");
+    const rec = new Record(col, { user: userId, kind: kind, ref: ref || {}, read: false });
+    dao.saveRecord(rec);
+  } catch (e) {
+    logErr("createNotification(" + kind + ")", e);
+  }
+}
+
 // Recompute the WHOLE canon path of a story ("лидер среди сиблингов", greedy
 // from the leader root down) and apply canon flips + symmetric reputation.
 // This is the authoritative mirror of the client's store.canonPath, and unlike
@@ -306,6 +319,7 @@ function recomputeStoryCanon(dao, storyId) {
     n.set("canon", shouldBe);
     dao.saveRecord(n);
     adjustRep(dao, n.getString("author"), shouldBe ? REPUTATION_REWARD : -REPUTATION_REWARD);
+    if (shouldBe) createNotification(dao, n.getString("author"), "canon", { text: "Твоя глава вошла в канон ✦", node: n.getId() });
   }
 }
 
@@ -482,3 +496,48 @@ onRecordBeforeCreateRequest((e) => {
 onRecordBeforeCreateRequest((e) => {
   try { forceAuthor(e, $app.dao()); } catch (err) { logErr("onRecordBeforeCreateRequest(comments)", err); }
 }, "comments");
+
+// ----------------------------------------------------------------------------
+// Hooks: social events -> notifications (server is the only creator)
+// ----------------------------------------------------------------------------
+
+onRecordAfterCreateRequest((e) => {
+  try {
+    const dao = $app.dao();
+    const post = dao.findRecordById("posts", e.record.getString("post"));
+    if (!post) return;
+    const recipient = post.getString("author");
+    const actor = e.record.getString("user");
+    if (recipient && recipient !== actor) {
+      createNotification(dao, recipient, "like", { text: "твою запись отметили", post: post.getId() });
+    }
+  } catch (err) { logErr("notify(likes)", err); }
+}, "likes");
+
+onRecordAfterCreateRequest((e) => {
+  try {
+    const dao = $app.dao();
+    const post = dao.findRecordById("posts", e.record.getString("post"));
+    if (!post) return;
+    const recipient = post.getString("author");
+    const actor = e.record.getString("author");
+    if (recipient && recipient !== actor) {
+      createNotification(dao, recipient, "comment", { text: "новый комментарий к твоей записи", post: post.getId() });
+    }
+  } catch (err) { logErr("notify(comments)", err); }
+}, "comments");
+
+onRecordAfterCreateRequest((e) => {
+  try {
+    const repostOf = e.record.getString("repost_of");
+    if (!repostOf) return;
+    const dao = $app.dao();
+    const orig = dao.findRecordById("posts", repostOf);
+    if (!orig) return;
+    const recipient = orig.getString("author");
+    const actor = e.record.getString("author");
+    if (recipient && recipient !== actor) {
+      createNotification(dao, recipient, "repost", { text: "твою запись репостнули", post: orig.getId() });
+    }
+  } catch (err) { logErr("notify(repost)", err); }
+}, "posts");

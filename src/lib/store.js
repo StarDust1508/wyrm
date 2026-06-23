@@ -82,7 +82,8 @@ export async function currentUser() {
     if (!pb.authStore.isValid) return null;
     const r = authRecord(pb); if (!r) return null;
     const handle = r.handle || (r.email || 'автор').split('@')[0];
-    return { id: r.id, email: r.email, name: r.name || handle, handle, role: r.role || 'user', reputation: r.reputation || 0 };
+    const avatar = r.avatar ? `${PB_URL}/api/files/users/${r.id}/${r.avatar}` : null;
+    return { id: r.id, email: r.email, name: r.name || handle, handle, role: r.role || 'user', reputation: r.reputation || 0, avatar };
   }
   const u = load('wyrm.user', null);
   return u ? { role: 'user', reputation: 0, ...u } : null;
@@ -130,20 +131,23 @@ function decorate(list, likes, comments) {
   }));
 }
 
-export async function listPosts() {
+// Пагинация: страница page (с 1), perPage записей. Возвращает { items, hasMore }.
+export async function listPosts(page = 1, perPage = 20) {
   if (enabled) {
     const pb = await pbClient();
-    const rows = await pb.collection('posts').getFullList({ sort: '-created' });
+    const res = await pb.collection('posts').getList(page, perPage, { sort: '-created' });
     let liked = new Set(), saved = new Set();
     const me = authRecord(pb);
     if (me) {
       const ls = await pb.collection('likes').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) });
       ls.forEach(l => (l.kind === 'save' ? saved : liked).add(l.post));
     }
-    return rows.map(p => mapPost(p, liked, saved));
+    return { items: res.items.map(p => mapPost(p, liked, saved)), hasMore: res.page < res.totalPages };
   }
   const hidden = new Set(load('wyrm.hiddenPosts', []));
-  return decorate(localPosts().filter(p => !hidden.has(p.id)), load('wyrm.likes', {}), load('wyrm.comments', {}));
+  const all = decorate(localPosts().filter(p => !hidden.has(p.id)), load('wyrm.likes', {}), load('wyrm.comments', {}));
+  const start = (page - 1) * perPage;
+  return { items: all.slice(start, start + perPage), hasMore: start + perPage < all.length };
 }
 
 // удалить пост (модератор или автор). В демо — скрываем (сид нельзя удалить физически).
@@ -307,7 +311,9 @@ const WY = () => (typeof window !== 'undefined' && window.WYRM) || {};
 const mapStory = (s) => ({
   id: s.slug || s.id, slug: s.slug || s.id, title: s.title, author: s.author_handle || s.author,
   synopsis: s.synopsis, tags: s.tags || [], community: s.community || null,
-  cover: s.cover || null, contributors: s.contributors || 1, branches: s.branches || 1, hot: !!s.hot,
+  // PB хранит обложку как имя файла → собираем публичный URL; демо хранит data-URL.
+  cover: s.cover ? (enabled ? `${PB_URL}/api/files/stories/${s.id}/${s.cover}` : s.cover) : null,
+  contributors: s.contributors || 1, branches: s.branches || 1, hot: !!s.hot,
 });
 const mapNode = (n) => ({
   id: n.id, story: n.story, parent: n.parent || null, title: n.title, author: n.author_handle || n.author,
@@ -382,11 +388,14 @@ export async function createStory(s, rootNode) {
     const pb = await pbClient();
     const me = authRecord(pb);
     const slug = (s.slug || s.id || (s.title || 'kniga').toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-')).slice(0, 48);
-    const story = await pb.collection('stories').create({
+    const data = {
       slug, title: s.title, author: me ? me.id : null, author_handle: s.author,
       synopsis: s.synopsis || '', tags: s.tags || [], community: s.community || null,
       contributors: 1, branches: 1, hot: false,
-    });
+    };
+    // обложка: File → SDK сам соберёт multipart/form-data в file-поле cover.
+    if (s.coverFile) data.cover = s.coverFile;
+    const story = await pb.collection('stories').create(data);
     if (rootNode) await addNode({ ...rootNode, story: story.id });
     return mapStory(story);
   }
@@ -456,6 +465,21 @@ export async function voteNode(nodeId) {
 /* медиа: файл → data URL (демо хранит обложку прямо в записи) */
 export function fileToDataURL(file) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+}
+
+/* аватар: PB — multipart в file-поле users.avatar; демо — data-URL в wyrm.user.
+   Возвращает публичный URL (или data-URL в демо) обновлённого аватара. */
+export async function updateAvatar(file) {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb);
+    if (!me) throw new Error('Нужно войти');
+    const rec = await pb.collection('users').update(me.id, { avatar: file });
+    return rec.avatar ? `${PB_URL}/api/files/users/${rec.id}/${rec.avatar}` : null;
+  }
+  const u = load('wyrm.user', null) || {};
+  const dataUrl = await fileToDataURL(file);
+  save('wyrm.user', { ...u, avatar: dataUrl });
+  return dataUrl;
 }
 
 /* подписки на авторов */
