@@ -2348,116 +2348,126 @@ Object.assign(window, { AuthModal, AccountMenu });
 function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 function buildTree() {
-  const rng = mulberry32(11);
-  const segs = [], nodes = [];
-  const W = 460, baseX = 230, baseY = 240;
-  const trunkTop = 198;
-  segs.push({ x: baseX, y: baseY, cx: baseX, cy: (baseY + trunkTop) / 2, x2: baseX, y2: trunkTop, gen: 0, len: baseY - trunkTop });
+  const rng = mulberry32(7);
+  const segs = [], leaves = [];
+  const W = 600, H = 600, baseX = 300, baseY = 600, trunkTop = 430;
+  // тапер ствола→ветви: ширина у основания каждого сегмента
+  const widthOf = (gen) => Math.max(1.3, 34 * Math.pow(0.62, gen));
+  segs.push({ x: baseX, y: baseY, cx: baseX, cy: (baseY + trunkTop) / 2, x2: baseX, y2: trunkTop, gen: 0, len: baseY - trunkTop, w: widthOf(0), w2: widthOf(1) });
   function grow(x, y, ang, len, gen) {
     const x2 = x + Math.cos(ang) * len, y2 = y + Math.sin(ang) * len;
     const mx = (x + x2) / 2, my = (y + y2) / 2;
     const nx = -(y2 - y), ny = (x2 - x), nl = Math.hypot(nx, ny) || 1;
-    const curve = (rng() - 0.5) * len * 0.5;
+    const curve = (rng() - 0.5) * len * 0.55;
     const cx = mx + nx / nl * curve, cy = my + ny / nl * curve;
     const chord = Math.hypot(x2 - x, y2 - y);
     const plen = chord + Math.abs(curve) * 0.9;
-    segs.push({ x: x, y: y, cx, cy, x2, y2, gen, len: plen });
-    if (gen >= 5) { nodes.push({ x: x2, y: y2, gen, leaf: true }); return; }
-    const spread = (30 - gen * 2.6) * Math.PI / 180;
-    const jit = () => (rng() - 0.5) * 14 * Math.PI / 180;
-    grow(x2, y2, ang - spread + jit(), len * 0.78, gen + 1);
-    grow(x2, y2, ang + spread + jit(), len * 0.78, gen + 1);
+    segs.push({ x, y, cx, cy, x2, y2, gen, len: plen, w: widthOf(gen), w2: widthOf(gen + 1) });
+    if (gen >= 6) { // крона: кластер листьев у кончика
+      const n = 2 + Math.floor(rng() * 3);
+      for (let i = 0; i < n; i++) leaves.push({ x: x2 + (rng() - 0.5) * 30, y: y2 + (rng() - 0.5) * 30, r: 5 + rng() * 10, gen, gold: rng() > 0.82 });
+      return;
+    }
+    const base = (26 - gen * 1.8) * Math.PI / 180;
+    const jit = () => (rng() - 0.5) * 18 * Math.PI / 180;
+    grow(x2, y2, ang - base + jit(), len * 0.76, gen + 1);
+    grow(x2, y2, ang + base + jit(), len * 0.76, gen + 1);
+    if (rng() > 0.5) grow(x2, y2, ang + jit() * 0.5, len * 0.66, gen + 1); // средняя ветвь для густоты
   }
-  grow(baseX, trunkTop, -Math.PI / 2, 50, 1);
-  nodes.push({ x: baseX, y: trunkTop, gen: 1, gold: true });
-  return { segs, nodes, W };
+  grow(baseX, trunkTop, -Math.PI / 2, 120, 1);
+  return { segs, leaves, W, H };
 }
 
+/* ~10-секундная кинематографичная заставка (всё на CSS-анимациях):
+   камера отъезжает и поворачивается по часовой, дерево разрастается на весь
+   экран, появляются слоганы, падают листья, опускаются полупрозрачные панели
+   со статистикой и отзывами; в центре остаётся «W». */
 function IntroFilm({ onDone, onAuth }) {
-  const [scene, setScene] = useState(0);
-  const [prog, setProg] = useState(0);
-  const [grow, setGrow] = useState(0); // секунды роста дерева (JS-таймлайн)
   const T = useMemo(buildTree, []);
-  const DUR = 12000;
+  const [finale, setFinale] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setFinale(true), 8600); return () => clearTimeout(t); }, []);
 
-  useEffect(() => {
-    const t = [];
-    [3, 6, 9].forEach((sec, i) => t.push(setTimeout(() => setScene(i + 1), sec * 1000)));
-    t.push(setTimeout(() => onDone(), DUR));
-    const start = Date.now();
-    const iv = setInterval(() => {
-      const el = (Date.now() - start) / 1000;
-      setGrow(Math.min(el, 4));
-      setProg(Math.min(1, (Date.now() - start) / DUR));
-    }, 33);
-    t.push({ clear: () => clearInterval(iv) });
-    return () => t.forEach(x => x.clear ? x.clear() : clearTimeout(x));
+  const SLOGANS = ['Истории, которые пишут вместе.', 'Твоя глава — в общей легенде.', 'Один мир — сотни авторов.'];
+
+  const leaves = useMemo(() => {
+    const r = mulberry32(42);
+    return Array.from({ length: 28 }, () => ({
+      x: r() * 100, s: 6 + r() * 9, delay: 4.6 + r() * 5.5, dur: 5.5 + r() * 4.5,
+      drift: (r() - 0.5) * 180, gold: r() > 0.72,
+    }));
   }, []);
 
-  // прогресс роста для ветки/узла данной «глубины»
-  const STAG = 0.40, GDUR = 0.95;
-  const easeOut = p => 1 - Math.pow(1 - Math.max(0, Math.min(1, p)), 3);
-  const twigProg = g => easeOut((grow - g * STAG) / GDUR);
-  const nodeIn = g => Math.max(0, Math.min(1, (grow - (g * STAG + 0.55)) / 0.5));
-
-  const SCENES = [
-    { eyebrow: 'Платформа коллективного повествования',
-      big: <React.Fragment><span style={{ color: 'var(--accent)' }}>W</span>YRM</React.Fragment>,
-      sub: 'сотвори историю вместе', word: true },
-    { big: <React.Fragment>Одна история —<br /><span className="serif-italic" style={{ fontWeight: 400 }}>тысяча авторов.</span></React.Fragment> },
-    { big: <React.Fragment>Каждая развилка<br />рождает <span className="serif-italic" style={{ fontWeight: 400 }}>новую судьбу.</span></React.Fragment> },
-    { big: <React.Fragment>Впиши свою<br /><span style={{ color: 'var(--accent)' }}>главу.</span></React.Fragment>, cta: true },
+  const panels = [
+    { top: '15%', left: '7%', r: -4, delay: 6.0, k: 'соавторов', v: '2 480' },
+    { top: '21%', left: '70%', r: 3, delay: 6.4, k: 'живых историй', v: '320' },
+    { top: '60%', left: '11%', r: 4, delay: 6.8, k: 'ветвей в день', v: '1 200' },
+    { top: '57%', left: '68%', r: -3, delay: 7.2, c: 'Дописал чужую главу — затянуло до утра', who: 'mara.q' },
+    { top: '11%', left: '40%', r: 2, delay: 7.6, c: 'Моя ветвь стала каноном', who: 'grimwarden' },
   ];
 
   return (
-    <div className="intro" role="dialog" aria-label="Заставка WYRM">
-      <div className="intro-veil" />
-      <div className="intro-glow" aria-hidden="true" />
+    <div className="intro cine" role="dialog" aria-label="Заставка WYRM">
+      <div className="cine-veil" aria-hidden="true" />
 
-      {/* растущее древо снизу (рост управляется JS) */}
-      <svg className="intro-tree" viewBox={`0 0 ${T.W} 240`} preserveAspectRatio="xMidYMax meet" aria-hidden="true">
-        {T.segs.map((s, i) => {
-          const lp = twigProg(s.gen);
-          return (
-            <path key={i} className="twig" d={`M ${s.x} ${s.y} Q ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} ${s.x2.toFixed(1)} ${s.y2.toFixed(1)}`}
-              strokeWidth={Math.max(0.7, 2.8 - s.gen * 0.45)}
-              strokeDasharray={s.len.toFixed(1)} strokeDashoffset={(s.len * (1 - lp)).toFixed(1)} />
-          );
-        })}
-        {T.nodes.map((n, i) => {
-          const k = nodeIn(n.gen);
-          return (
-            <circle key={i} className="twig-node" cx={n.x} cy={n.y} r={(n.gold ? 4 : (n.leaf ? 2.4 : 2)) * k}
-              opacity={k} fill={n.gold ? 'var(--gold)' : 'var(--accent)'} style={{ ['--g']: n.gen }} />
-          );
-        })}
-        {T.nodes.filter(n => n.gold).map((n, i) => (
-          <circle key={'h' + i} className="twig-halo" cx={n.x} cy={n.y} r="9" fill="none"
-            stroke="var(--gold)" strokeWidth="0.7" opacity={nodeIn(n.gen) * 0.5} />
+      {/* камера-стейдж с деревом */}
+      <div className="cine-stage" aria-hidden="true">
+        <div className="cine-canopy-glow" />
+        <svg className="cine-tree" viewBox={`0 0 ${T.W} ${T.H}`} preserveAspectRatio="xMidYMax meet">
+          {T.segs.map((s, i) => (
+            <path key={i} className="twig"
+              d={`M ${s.x} ${s.y} Q ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} ${s.x2.toFixed(1)} ${s.y2.toFixed(1)}`}
+              strokeWidth={s.w.toFixed(1)}
+              style={{ strokeDasharray: s.len.toFixed(1), strokeDashoffset: s.len.toFixed(1), animationDelay: (s.gen * 0.3).toFixed(2) + 's' }} />
+          ))}
+          {T.leaves.map((n, i) => (
+            <circle key={i} className="cine-leafnode" cx={n.x} cy={n.y} r={n.r.toFixed(1)}
+              fill={n.gold ? 'var(--gold)' : 'var(--accent)'}
+              style={{ animationDelay: (n.gen * 0.3 + 0.5 + (i % 7) * 0.05).toFixed(2) + 's' }} />
+          ))}
+        </svg>
+      </div>
+
+      {/* падающие листья */}
+      <div className="cine-leaves" aria-hidden="true">
+        {leaves.map((l, i) => (
+          <span key={i} className="cine-leaf" style={{
+            left: l.x + '%', width: l.s, height: l.s,
+            background: l.gold ? 'var(--gold)' : 'var(--accent)',
+            '--drift': l.drift + 'px', animationDuration: l.dur + 's', animationDelay: l.delay + 's',
+          }} />
         ))}
-      </svg>
+      </div>
 
-      {SCENES.map((s, i) => (
-        <div key={i} className="intro-scene" style={{
-          opacity: scene === i ? 1 : 0,
-          filter: scene === i ? 'none' : 'blur(7px)',
-          transform: scene === i ? 'none' : (scene > i ? 'translateY(-18px)' : 'translateY(18px)'),
-          pointerEvents: scene === i ? 'auto' : 'none',
-        }}>
-          {s.eyebrow && <div className="eyebrow intro-eyebrow" style={{ marginBottom: 26 }}>{s.eyebrow}</div>}
-          <h1 className={'display ' + (s.word ? 'intro-word' : 'intro-line')}>{s.big}</h1>
-          {s.sub && <div className="mono intro-sub">{s.sub}</div>}
-          {s.cta && (
-            <div className="intro-cta">
-              <button className="btn btn-primary" onClick={() => onAuth()}><Icon name="quill" size={16} />Войти и начать</button>
-              <button className="btn btn-ghost" onClick={onDone}>Продолжить как гость</button>
-            </div>
-          )}
+      {/* полупрозрачные панели со статистикой и отзывами */}
+      <div className="cine-panels" aria-hidden="true">
+        {panels.map((p, i) => (
+          <div key={i} className="cine-panel" style={{ top: p.top, left: p.left, '--r': p.r + 'deg', animationDelay: p.delay + 's' }}>
+            {p.v
+              ? <React.Fragment><span className="display cine-panel-v">{p.v}</span><span className="mono cine-panel-k">{p.k}</span></React.Fragment>
+              : <React.Fragment><span className="serif-italic cine-panel-c">«{p.c}»</span><span className="mono cine-panel-k">@{p.who}</span></React.Fragment>}
+          </div>
+        ))}
+      </div>
+
+      {/* центр: W + слоганы + финал */}
+      <div className="cine-center">
+        <div className="cine-w">W</div>
+        <div className="cine-slogans">
+          {SLOGANS.map((s, i) => (
+            <div key={i} className="cine-slogan display" style={{ animationDelay: (1.6 + i * 2.2) + 's' }}>{s}</div>
+          ))}
         </div>
-      ))}
+        <div className={'cine-finale' + (finale ? ' in' : '')}>
+          <div className="mono" style={{ color: 'var(--ink-3)', letterSpacing: '.26em', marginBottom: 18 }}>WYRM · сотвори историю вместе</div>
+          <div className="intro-cta">
+            <button className="btn btn-primary" onClick={() => onAuth()}><Icon name="quill" size={16} />Войти и начать</button>
+            <button className="btn btn-ghost" onClick={onDone}>Продолжить как гость</button>
+          </div>
+        </div>
+      </div>
 
       <button className="intro-skip mono" onClick={onDone}>Пропустить <Icon name="arrow" size={13} /></button>
-      <div className="intro-progress"><div style={{ width: (prog * 100) + '%' }} /></div>
+      <div className="intro-progress"><div className="cine-bar" /></div>
     </div>
   );
 }
