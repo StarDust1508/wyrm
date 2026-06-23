@@ -730,6 +730,109 @@ function useStoryNodes(storyId) {
   return { nodes, vote, reload, myVotes, loading };
 }
 
+/* Режим Чтения: книжная колонка с комфортной типографикой, ясным каноном
+   и понятным выбором на каждой развилке (канон vs ветви «а что, если…»). */
+function ReadingColumn({ nodes, byId, curId, setSel, vote, myVotes, goFork, fontScale, setFontScale }) {
+  const node = byId[curId];
+  if (!node) return null;
+  const path = [...ancestorsOf(curId, byId)].reverse();
+  const children = nodes.filter(n => n.parent === curId);
+  const canonChild = children.find(c => c.canon);
+  const alts = children.filter(c => !c.canon);
+  const setScale = (d) => setFontScale(s => { const v = Math.max(0.85, Math.min(1.6, +(s + d).toFixed(2))); wyrmSave('wyrm.readScale', v); return v; });
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {/* панель чтения: путь + размер шрифта */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', color: 'var(--ink-3)' }}>
+          <span className="mono" style={{ fontSize: '.54rem' }}>путь канона:</span>
+          {path.map((id, i) => (
+            <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <button className="mono path-crumb" onClick={() => setSel(id)} style={{ fontSize: '.56rem', color: id === curId ? 'var(--accent)' : (byId[id].canon ? 'var(--gold)' : 'var(--ink-2)') }}>{byId[id].title}</button>
+              {i < path.length - 1 && <span style={{ opacity: .5 }}>›</span>}
+            </span>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <button className="icon-btn" title="Меньше" onClick={() => setScale(-0.1)} style={{ width: 30, height: 30, fontFamily: 'var(--display)', fontSize: 12 }}>А−</button>
+          <button className="icon-btn" title="Больше" onClick={() => setScale(0.1)} style={{ width: 30, height: 30, fontFamily: 'var(--display)', fontSize: 15 }}>А+</button>
+        </div>
+      </div>
+
+      <article style={{ maxWidth: '40rem', margin: '0 auto', fontSize: fontScale + 'em' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+          <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>глава {path.length} · {node.id.toUpperCase()}</span>
+          {node.canon
+            ? <span className="mono" style={{ fontSize: '.56rem', color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="star" size={12} />каноничная линия</span>
+            : <span className="mono" style={{ fontSize: '.56rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="branch" size={12} />ветвь · вне канона</span>}
+        </div>
+        <h2 className="display" style={{ fontSize: '2.1em', lineHeight: 1.05, marginBottom: 14 }}>{node.title}</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
+          <Avatar name={node.author} size={26} />
+          <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)' }}>@{node.author} · {node.words || 0} слов</span>
+        </div>
+
+        {node.html
+          ? <div className="serif rich-read" style={{ fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }} dangerouslySetInnerHTML={{ __html: cleanHtml(node.html) }} />
+          : <p className="serif" style={{ fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }}>{node.excerpt}</p>}
+
+        {node.tags && node.tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '20px 0' }}>{node.tags.map(t => <Tag key={t} id={t} />)}</div>}
+
+        <div style={{ display: 'flex', gap: 8, margin: '20px 0 32px', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => vote(curId)} style={{ borderColor: myVotes[curId] ? 'var(--gold)' : 'var(--line)', color: myVotes[curId] ? 'var(--gold)' : 'var(--ink)' }}>
+            <Icon name={myVotes[curId] ? 'check' : 'star'} size={14} />{myVotes[curId] ? 'Голос учтён' : 'За канон'}
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={() => goFork(curId)}><Icon name="fork" size={14} />А что, если…</button>
+          {path.length > 1 && <button className="btn btn-ghost btn-sm" onClick={() => setSel(node.parent)}><Icon name="arrowL" size={14} />Назад</button>}
+        </div>
+
+        {/* продолжение: ясный выбор канон vs ветви */}
+        <div style={{ borderTop: 'var(--rule-style)', paddingTop: 22 }}>
+          {children.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '10px 0' }}>
+              <p className="serif-italic" style={{ color: 'var(--ink-2)', marginBottom: 14 }}>Здесь история обрывается. Дальше ещё никто не написал.</p>
+              <button className="btn btn-primary" onClick={() => goFork(curId)}><Icon name="quill" size={15} />Написать продолжение</button>
+            </div>
+          ) : (
+            <React.Fragment>
+              <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginBottom: 12 }}>Что дальше</div>
+              {canonChild && (
+                <button onClick={() => setSel(canonChild.id)} className="card" style={{ width: '100%', textAlign: 'left', padding: '16px 18px', marginBottom: 10, borderColor: 'var(--gold)', boxShadow: 'var(--canon-glow)', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                  <span style={{ color: 'var(--gold)' }}><Icon name="star" size={18} /></span>
+                  <span style={{ flex: 1 }}>
+                    <span className="mono" style={{ fontSize: '.5rem', color: 'var(--gold)', display: 'block' }}>ДАЛЬШЕ ПО КАНОНУ</span>
+                    <span className="display" style={{ fontSize: '1.1rem' }}>{canonChild.title}</span>
+                    <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', display: 'block' }}>@{canonChild.author}</span>
+                  </span>
+                  <Icon name="arrow" size={18} />
+                </button>
+              )}
+              {alts.length > 0 && (
+                <React.Fragment>
+                  <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', margin: '12px 0 8px' }}>развилки · а что, если… ({alts.length})</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {alts.map(a => (
+                      <button key={a.id} onClick={() => setSel(a.id)} className="story-card card" style={{ textAlign: 'left', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                        <span style={{ color: 'var(--accent)' }}><Icon name="fork" size={15} /></span>
+                        <span style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontWeight: 600, display: 'block' }}>{a.title}</span>
+                          <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>@{a.author} · {a.votes || 0} голосов</span>
+                        </span>
+                        <span style={{ width: 90 }}><CanonMeter score={a.score} /></span>
+                      </button>
+                    ))}
+                  </div>
+                </React.Fragment>
+              )}
+            </React.Fragment>
+          )}
+        </div>
+      </article>
+    </div>
+  );
+}
+
 function Reader({ go, ctx, setCtx }) {
   const { FLAGSHIP, CHARACTERS, STORIES } = window.WYRM;
   const story = STORIES.find(s => s.id === ctx.story) || FLAGSHIP;
@@ -737,13 +840,16 @@ function Reader({ go, ctx, setCtx }) {
   const [sel, setSel] = useState(ctx.node || null);
   const [orient, setOrient] = useState('vertical');
   const [filter, setFilter] = useState(null);
+  const [readMode, setReadMode] = useState(ctx.view !== 'map'); // читатель по умолчанию — режим Чтения
+  const [fontScale, setFontScale] = useState(() => wyrmLoad('wyrm.readScale', 1));
   // reset selection when the story changes (but not on first mount, so feed deep-links keep their node)
   const prevStory = useRef(story.id);
   useEffect(() => { if (prevStory.current !== story.id) { prevStory.current = story.id; setSel(null); } }, [story.id]);
 
   const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
   const rootId = NODES.length ? (NODES.find(n => !n.parent) || NODES[0]).id : null;
-  const defId = byId['A1a'] ? 'A1a' : rootId;
+  // чтение стартует с корня (с начала книги), карта — с канон-узла A1a (если есть)
+  const defId = (!readMode && byId['A1a']) ? 'A1a' : rootId;
   const node = byId[sel] || byId[defId] || null;
   const curId = node ? node.id : null;
   const castVote = (id) => vote(id);
@@ -792,6 +898,17 @@ function Reader({ go, ctx, setCtx }) {
         </div>
       </div>
 
+      {/* режим: чтение / карта ветвей */}
+      <div style={{ display: 'flex', gap: 4, border: '1px solid var(--line)', borderRadius: 8, padding: 3, width: 'fit-content', marginBottom: 16 }}>
+        {[['read', 'Чтение', 'eye'], ['map', 'Карта ветвей', 'branch']].map(([k, l, ic]) => {
+          const on = readMode === (k === 'read');
+          return <button key={k} className="btn btn-sm" onClick={() => setReadMode(k === 'read')} style={{ background: on ? 'var(--accent)' : 'transparent', color: on ? 'var(--accent-ink)' : 'var(--ink-2)' }}><Icon name={ic} size={14} />{l}</button>;
+        })}
+      </div>
+
+      {readMode && <ReadingColumn nodes={NODES} byId={byId} curId={curId} setSel={setSel} vote={vote} myVotes={myVotes} goFork={goFork} fontScale={fontScale} setFontScale={setFontScale} />}
+
+      {!readMode && (<React.Fragment>
       {/* toolbar */}
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
         <span className="mono" style={{ color: 'var(--ink-3)' }}><Icon name="branch" size={13} style={{ verticalAlign: -2 }} /> карта</span>
@@ -890,6 +1007,7 @@ function Reader({ go, ctx, setCtx }) {
           </div>
         </aside>
       </div>
+      </React.Fragment>)}
     </div>
   );
 }
