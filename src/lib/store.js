@@ -270,3 +270,133 @@ export async function toggleJoin(id) {
   save('wyrm.memberships', next);
   return next.includes(id);
 }
+
+/* ============================================================
+   STORIES / TREE / VOTES
+   В демо-режиме источник — window.WYRM (сид-деревья) + localStorage
+   (wyrm.stories / wyrm.nodes / wyrm.votes); в боевом — PocketBase.
+   ============================================================ */
+
+const WY = () => (typeof window !== 'undefined' && window.WYRM) || {};
+const mapStory = (s) => ({
+  id: s.slug || s.id, slug: s.slug || s.id, title: s.title, author: s.author_handle || s.author,
+  synopsis: s.synopsis, tags: s.tags || [], community: s.community || null,
+  cover: s.cover || null, contributors: s.contributors || 1, branches: s.branches || 1, hot: !!s.hot,
+});
+const mapNode = (n) => ({
+  id: n.id, story: n.story, parent: n.parent || null, title: n.title, author: n.author_handle || n.author,
+  canon: !!n.canon, score: n.score || 0, votes: n.votes || 0, words: n.words || 0,
+  tags: n.tags || [], excerpt: n.excerpt || '', html: n.html || '', chars: n.chars || {},
+});
+
+/* ---- голоса (демо хранит свои голоса в браузере) ---- */
+export function getVotes() { return load('wyrm.votes', {}); }
+
+/* ---- канон «лидер среди сиблингов» (чистые функции, общий дисплей) ---- */
+export function canonPath(nodes, overlay = {}) {
+  const eff = (n) => (n.votes || 0) + (overlay[n.id] ? 1 : 0);
+  const kids = {};
+  nodes.forEach(n => { const p = n.parent || '__root'; (kids[p] = kids[p] || []).push(n); });
+  const leader = (sibs) => sibs.reduce((b, s) =>
+    (eff(s) > eff(b) || (eff(s) === eff(b) && (s.score || 0) > (b.score || 0))) ? s : b, sibs[0]);
+  const path = [];
+  let cur = (kids['__root'] && kids['__root'].length) ? leader(kids['__root']) : null;
+  const guard = new Set();
+  while (cur && !guard.has(cur.id)) { guard.add(cur.id); path.push(cur.id); const ch = kids[cur.id]; cur = (ch && ch.length) ? leader(ch) : null; }
+  return path;
+}
+export function markCanon(nodes, overlay = {}) {
+  const cp = new Set(canonPath(nodes, overlay));
+  return nodes.map(n => ({ ...n, canon: cp.has(n.id) }));
+}
+// overlay голосов применяется только в демо (в PB голоса уже в node.votes)
+export const voteOverlay = () => (enabled ? {} : getVotes());
+
+/* ---- stories ---- */
+export async function listStories() {
+  if (enabled) {
+    const pb = await pbClient();
+    const rows = await pb.collection('stories').getFullList({ sort: '-created' });
+    return rows.map(mapStory);
+  }
+  return (WY().STORIES || load('wyrm.stories', [])).slice();
+}
+export async function getStory(idOrSlug) {
+  if (enabled) {
+    const pb = await pbClient();
+    const r = await pb.collection('stories').getFirstListItem(pb.filter('slug={:s}', { s: idOrSlug })).catch(() => null);
+    return r ? mapStory(r) : null;
+  }
+  return (WY().STORIES || []).find(s => s.id === idOrSlug) || null;
+}
+export async function createStory(s, rootNode) {
+  if (enabled) {
+    const pb = await pbClient();
+    const me = authRecord(pb);
+    const slug = (s.slug || s.id || (s.title || 'kniga').toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-')).slice(0, 48);
+    const story = await pb.collection('stories').create({
+      slug, title: s.title, author: me ? me.id : null, author_handle: s.author,
+      synopsis: s.synopsis || '', tags: s.tags || [], community: s.community || null,
+      contributors: 1, branches: 1, hot: false,
+    });
+    if (rootNode) await addNode({ ...rootNode, story: story.id });
+    return mapStory(story);
+  }
+  // демо: пишем в localStorage + window.WYRM
+  const story = { contributors: 1, branches: 1, hot: false, ...s };
+  save('wyrm.stories', [story, ...load('wyrm.stories', [])]);
+  if (WY().STORIES) WY().STORIES.push(story);
+  if (rootNode) await addNode(rootNode);
+  return story;
+}
+
+/* ---- nodes ---- */
+export async function listNodes(storyId) {
+  if (enabled) {
+    const pb = await pbClient();
+    const story = await pb.collection('stories').getFirstListItem(pb.filter('slug={:s}', { s: storyId })).catch(() => null);
+    if (!story) return [];
+    const rows = await pb.collection('nodes').getFullList({ filter: pb.filter('story={:id}', { id: story.id }), sort: 'created' });
+    return rows.map(mapNode);
+  }
+  return (WY().nodesFor ? WY().nodesFor(storyId) : load('wyrm.nodes', []).filter(n => (n.story || 'ashes') === storyId)).slice();
+}
+export async function addNode(node) {
+  if (enabled) {
+    const pb = await pbClient();
+    const me = authRecord(pb);
+    let storyId = node.story;
+    if (storyId && !/^[a-z0-9]{15}$/.test(storyId)) { // got a slug → resolve to record id
+      const st = await pb.collection('stories').getFirstListItem(pb.filter('slug={:s}', { s: storyId })).catch(() => null);
+      if (st) storyId = st.id;
+    }
+    const created = await pb.collection('nodes').create({
+      story: storyId, parent: node.parent || null, title: node.title, author: me ? me.id : null,
+      author_handle: node.author, score: node.score || 0.3, votes: 0, words: node.words || 0,
+      tags: node.tags || [], excerpt: node.excerpt || '', html: node.html || '', chars: node.chars || {},
+    });
+    return mapNode(created);
+  }
+  // демо: persist + поддержать window.WYRM
+  const stored = load('wyrm.nodes', []);
+  save('wyrm.nodes', [...stored, node]);
+  if ((node.story || 'ashes') === 'ashes' && WY().NODES) WY().NODES.push(node);
+  return node;
+}
+
+/* ---- голосование за узел (toggle) ---- */
+export async function voteNode(nodeId) {
+  if (enabled) {
+    const pb = await pbClient();
+    const me = authRecord(pb);
+    if (!me) throw new Error('Нужно войти');
+    const ex = await pb.collection('votes').getFullList({ filter: pb.filter('node={:n}&&user={:u}', { n: nodeId, u: me.id }) });
+    if (ex.length) { await pb.collection('votes').delete(ex[0].id); return false; } // сервер пересчитает canon/score
+    await pb.collection('votes').create({ node: nodeId, user: me.id, weight: 1 });
+    return true;
+  }
+  const v = getVotes();
+  v[nodeId] = !v[nodeId];
+  save('wyrm.votes', v);
+  return !!v[nodeId];
+}

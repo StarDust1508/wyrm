@@ -636,7 +636,9 @@ function MiniTree({ onOpen }) {
 /* ---------------- CATALOG ---------------- */
 function Catalog({ go }) {
   const ref = useReveal();
-  const { STORIES, TAGS } = window.WYRM;
+  const { TAGS } = window.WYRM;
+  const [STORIES, setStories] = useState(() => (window.WYRM.STORIES || []).slice());
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on && s && s.length) setStories(s); }); return () => { on = false; }; }, []);
   const [active, setActive] = useState(null);
   const [sort, setSort] = useState('hot');
   const allTags = Object.keys(TAGS);
@@ -704,25 +706,54 @@ Object.assign(window, { Landing, Catalog });
    WYRM — Reader (Story Tree + detail + character tracking) + Compose
    ============================================================ */
 
+/* Загрузка древа истории через store (PocketBase или localStorage),
+   канон вычисляется динамически («лидер среди сиблингов»), голосование toggle. */
+function useStoryNodes(storyId) {
+  const [raw, setRaw] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let on = true; setLoading(true);
+    store.listNodes(storyId).then(n => { if (on) { setRaw(n); setLoading(false); } });
+    return () => { on = false; };
+  }, [storyId, tick]);
+  const nodes = useMemo(() => store.markCanon(raw, store.voteOverlay()), [raw, tick]);
+  const myVotes = store.voteOverlay();
+  const vote = async (id) => { await store.voteNode(id); setTick(t => t + 1); };
+  const reload = () => setTick(t => t + 1);
+  return { nodes, vote, reload, myVotes, loading };
+}
+
 function Reader({ go, ctx, setCtx }) {
   const { FLAGSHIP, CHARACTERS, STORIES } = window.WYRM;
   const story = STORIES.find(s => s.id === ctx.story) || FLAGSHIP;
-  const NODES = window.WYRM.nodesFor(story.id);
-  const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
-  const rootId = (NODES.find(n => !n.parent) || NODES[0]).id;
-  const [sel, setSel] = useState(ctx.node || (byId['A1a'] ? 'A1a' : rootId));
+  const { nodes: NODES, vote, myVotes, loading } = useStoryNodes(story.id);
+  const [sel, setSel] = useState(ctx.node || null);
   const [orient, setOrient] = useState('vertical');
   const [filter, setFilter] = useState(null);
-  const [voted, setVoted] = useState(() => wyrmLoad('wyrm.votes', {}));
   // reset selection when the story changes (but not on first mount, so feed deep-links keep their node)
   const prevStory = useRef(story.id);
-  useEffect(() => { if (prevStory.current !== story.id) { prevStory.current = story.id; setSel(byId['A1a'] ? 'A1a' : rootId); } }, [story.id]);
-  const node = byId[sel] || byId[rootId];
-  const curId = node.id;
-  const castVote = (id) => setVoted(v => { const nx = { ...v, [id]: !v[id] }; wyrmSave('wyrm.votes', nx); return nx; });
+  useEffect(() => { if (prevStory.current !== story.id) { prevStory.current = story.id; setSel(null); } }, [story.id]);
+
+  const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
+  const rootId = NODES.length ? (NODES.find(n => !n.parent) || NODES[0]).id : null;
+  const defId = byId['A1a'] ? 'A1a' : rootId;
+  const node = byId[sel] || byId[defId] || null;
+  const curId = node ? node.id : null;
+  const castVote = (id) => vote(id);
+
+  if (!node) {
+    return (
+      <div className="view wrap" style={{ padding: 'clamp(40px,8vh,90px) 0 80px' }}>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Древо истории</div>
+        <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3.6rem)' }}>{story.title}</h1>
+        <p className="mono" style={{ color: 'var(--ink-3)', marginTop: 16 }}>{loading ? 'Загрузка древа…' : 'У этой истории пока нет глав.'}</p>
+      </div>
+    );
+  }
 
   const path = [...ancestorsOf(curId, byId)].reverse(); // root → sel
-  const allTags = [...new Set(NODES.flatMap(n => n.tags))];
+  const allTags = [...new Set(NODES.flatMap(n => n.tags || []))];
 
   const goFork = (id) => { setCtx({ ...ctx, forkFrom: id, story: story.id }); go('compose'); };
 
@@ -812,8 +843,8 @@ function Reader({ go, ctx, setCtx }) {
 
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
               <button className="btn btn-ghost btn-sm" onClick={() => castVote(curId)}
-                style={{ flex: 1, justifyContent: 'center', borderColor: voted[curId] ? 'var(--gold)' : 'var(--line)', color: voted[curId] ? 'var(--gold)' : 'var(--ink)' }}>
-                <Icon name={voted[curId] ? 'check' : 'star'} size={15} />{voted[curId] ? 'Голос за канон' : 'За канон'}
+                style={{ flex: 1, justifyContent: 'center', borderColor: myVotes[curId] ? 'var(--gold)' : 'var(--line)', color: myVotes[curId] ? 'var(--gold)' : 'var(--ink)' }}>
+                <Icon name={myVotes[curId] ? 'check' : 'star'} size={15} />{myVotes[curId] ? 'Голос учтён' : 'За канон'}
               </button>
               <button className="btn btn-primary btn-sm" onClick={() => goFork(curId)} style={{ flex: 1, justifyContent: 'center' }}>
                 <Icon name="fork" size={15} />А что, если…
@@ -881,21 +912,19 @@ function Compose({ go, ctx, setCtx }) {
   const slug = (s) => (s || '').toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kniga';
   const resetForm = () => { setDone(false); setTitle(''); setBody(''); setSynopsis(''); setNewId(null); setBookId(null); };
 
-  // Start a brand-new book: create the story + its root chapter, persist both.
-  const publishBook = () => {
+  // Start a brand-new book: create the story + its root chapter through the store.
+  const publishBook = async () => {
     const text = htmlToText(body);
     if (!title.trim() || !text) return;
     const me = wyrmLoad('wyrm.user', null);
     const author = (me && (me.handle || me.name)) || 'аноним';
     const id = slug(title) + '-' + Date.now().toString(36).slice(-4);
-    const story = { id, title: title.trim(), author, synopsis: synopsis.trim() || (text.length > 140 ? text.slice(0, 140) + '…' : text),
+    const story = { id, slug: id, title: title.trim(), author, synopsis: synopsis.trim() || (text.length > 140 ? text.slice(0, 140) + '…' : text),
       contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false };
     const root = { id: id + '-root', parent: null, story: id, title: 'Глава 1', author,
       canon: true, score: 0.5, votes: 0, words, tags: story.tags,
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, html: cleanHtml(body), chars: {} };
-    window.WYRM.STORIES.push(story);
-    wyrmSave('wyrm.stories', [...wyrmLoad('wyrm.stories', []), story]);
-    wyrmSave('wyrm.nodes', [...wyrmLoad('wyrm.nodes', []), root]);
+    await store.createStory(story, root);
     setBookId(id); setNewId(root.id); setDone(true);
   };
 
@@ -908,8 +937,8 @@ function Compose({ go, ctx, setCtx }) {
     </div>
   );
 
-  // Publish for real: build a branch node, graft it onto the tree, persist it.
-  const publish = () => {
+  // Publish a branch node through the store (PocketBase or localStorage).
+  const publish = async () => {
     const text = htmlToText(body);
     if (!text) return;
     const me = wyrmLoad('wyrm.user', null);
@@ -925,9 +954,7 @@ function Compose({ go, ctx, setCtx }) {
       chars: { ...chars },
       story: storyId,
     };
-    if (storyId === 'ashes') window.WYRM.NODES.push(node); // keep flagship-only screens in sync this session
-    const stored = wyrmLoad('wyrm.nodes', []);
-    wyrmSave('wyrm.nodes', [...stored, node]);
+    await store.addNode(node);
     setNewId(node.id);
     setDone(true);
   };

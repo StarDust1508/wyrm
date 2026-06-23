@@ -130,3 +130,51 @@ sudo ./pocketbase serve --https=wyrm.твойдомен.ру
 - Обычные пользователи регистрируются в самом приложении. Если нужна **роль
   админа внутри приложения** (модерация: удалять чужие посты, управлять
   сообществами, закреплять истории) — это отдельная фича, её можно добавить.
+
+---
+
+# Автоматизация: миграции, хуки, сид (Фаза 0)
+
+В репозитории теперь есть готовые артефакты, чтобы не настраивать коллекции вручную.
+
+## Миграции схемы (`pocketbase/pb_migrations/`)
+Файл `1719000000_wyrm_init.js` создаёт **все** коллекции из ТЗ (Приложение A):
+users(+поля), stories, nodes, votes, posts, likes, comments, communities,
+memberships, merge_requests, reader_cuts, workspace_presets, notifications —
+с полями, индексами и правилами доступа. Применяется автоматически при старте
+PocketBase, если папка `pb_migrations` лежит рядом с бинарником:
+
+```bash
+# структура на сервере:
+#   pocketbase
+#   pb_migrations/1719000000_wyrm_init.js
+#   pb_hooks/wyrm.pb.js
+./pocketbase serve --https=wyrm.домен.ру   # миграции применятся сами
+```
+Для существующей БД: `./pocketbase migrate up`. Откат: `./pocketbase migrate down 1`.
+> ⚠ Рассчитано на сервер **v0.22.x** (под SDK 0.21.5). Проверено против исходников v0.22.21.
+
+## Серверные хуки (`pocketbase/pb_hooks/wyrm.pb.js`)
+- **Канон «лидер среди сиблингов».** При создании/удалении голоса (`votes`)
+  пересчитывает `votes`/`score` узла и `canon` среди веток одного родителя.
+- **Серверная санитизация.** При создании/правке `nodes` чистит `html`
+  (вырезает script/on*/javascript:/iframe/style), пересчитывает `words`/`excerpt`.
+- **Репутация.** +5 автору узла при переходе ветви в канон (best-effort).
+
+## Сид-данные (`scripts/seed.mjs`)
+Одноразово заливает флагман «Пепел Аркадии» (древо), сообщества и примеры постов
+(идемпотентно). Запуск:
+
+```bash
+PB_URL=https://wyrm.домен.ру \
+PB_ADMIN_EMAIL=admin@домен.ру \
+PB_ADMIN_PASSWORD=*** \
+npm run seed
+```
+
+## Что уже умеет фронтенд (Фаза 0, миграция localStorage→PocketBase)
+Слой `src/lib/store.js` расширен: `listStories/getStory/createStory/listNodes/
+addNode/voteNode` + чистые функции канона (`markCanon`/`canonPath`). Древо
+(Reader), создание книги и ветвей (Compose), каталог читают/пишут **через store** —
+в демо это localStorage, при заданном `VITE_PB_URL` — PocketBase. Голосование за
+узел и динамический пересчёт золотой канон-линии работают в обоих режимах.
