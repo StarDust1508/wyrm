@@ -476,8 +476,8 @@ function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activ
               onClick={() => onSelect && onSelect(n.id)}
               style={{
                 position: 'absolute', left: c.x, top: c.y, width: NODE_W, textAlign: 'left',
-                padding: '11px 12px 12px', borderRadius: 5, cursor: 'pointer',
-                background: 'var(--panel)', backdropFilter: 'blur(6px)',
+                padding: '11px 12px 12px', borderRadius: 0, cursor: 'pointer',
+                background: 'var(--panel)',
                 border: '1px solid ' + (n.canon ? 'var(--gold)' : isSel ? 'var(--accent)' : 'var(--line)'),
                 boxShadow: n.canon ? 'var(--canon-glow)' : (isSel || onPath ? '0 0 0 1px var(--accent)' : 'var(--node-glow)'),
                 opacity: dim ? 0.26 : 1,
@@ -1513,15 +1513,15 @@ function MergeHunk({ h, decision, onDecide }) {
     </div>
   );
   if (h.type === 'conflict') return (
-    <div style={{ border: '1px solid oklch(0.7 0.12 50 / .5)', borderRadius: 5, margin: '8px 0', overflow: 'hidden' }}>
-      <div className="mono" style={{ fontSize: '.54rem', padding: '6px 12px', background: 'oklch(0.7 0.12 50 / .12)', color: 'oklch(0.78 0.12 50)', display: 'flex', justifyContent: 'space-between' }}>
+    <div style={{ border: '1px solid color-mix(in oklab, var(--ink-max) 50%, transparent)', borderRadius: 5, margin: '8px 0', overflow: 'hidden' }}>
+      <div className="mono" style={{ fontSize: '.54rem', padding: '6px 12px', background: 'color-mix(in oklab, var(--ink-max) 12%, transparent)', color: 'var(--ink)', display: 'flex', justifyContent: 'space-between' }}>
         <span>⚠ конфликт · выбери линию</span><span>hunk #{h.id}</span>
       </div>
       {[['base', h.text, 'текущий канон'], ['them', h.them, '@grimwarden']].map(([k, txt, who]) => (
         <button key={k} onClick={() => onDecide(h.id, k)} style={{
           width: '100%', textAlign: 'left', display: 'flex', gap: 12, padding: '10px 14px',
           borderTop: '1px solid var(--line-soft)',
-          background: decision === k ? 'oklch(0.7 0.13 168 / .12)' : 'transparent',
+          background: decision === k ? 'color-mix(in oklab, var(--ink-max) 12%, transparent)' : 'transparent',
         }}>
           <span style={{ width: 16, flex: '0 0 auto', color: decision === k ? 'var(--accent)' : 'var(--ink-3)' }}>
             <Icon name={decision === k ? 'check' : 'fork'} size={13} />
@@ -1538,9 +1538,9 @@ function MergeHunk({ h, decision, onDecide }) {
   const on = decision !== 'reject';
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '7px 14px',
-      background: `oklch(0.7 0.12 ${p.hue} / ${on ? .1 : .03})`, opacity: on ? 1 : .45,
-      borderLeft: `2px solid oklch(0.7 0.12 ${p.hue} / ${on ? .8 : .25})` }}>
-      <span className="mono" style={{ fontSize: '.72rem', width: 16, flex: '0 0 auto', color: `oklch(0.78 0.13 ${p.hue})` }}>{p.sign}</span>
+      background: on ? 'var(--bg-3)' : 'transparent', opacity: on ? 1 : .45,
+      borderLeft: on ? '2px solid var(--ink-max)' : '2px solid var(--line)' }}>
+      <span className="mono" style={{ fontSize: '.72rem', width: 16, flex: '0 0 auto', color: 'var(--ink)' }}>{p.sign}</span>
       <span style={{ flex: 1, fontSize: '.98rem', textDecoration: !on && h.type === 'add' ? 'line-through' : 'none' }}>{h.text}</span>
       <button onClick={() => onDecide(h.id, on ? 'reject' : 'accept')} className="mono"
         title={on ? 'отклонить' : 'принять'} style={{ fontSize: '.5rem', padding: '3px 7px', borderRadius: 2, border: '1px solid var(--line-soft)', color: 'var(--ink-2)', flex: '0 0 auto' }}>
@@ -1627,7 +1627,7 @@ function Merge({ go }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 260 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <span className="mono" style={{ fontSize: '.56rem', padding: '.3em .6em', borderRadius: 2, background: ready ? 'oklch(0.7 0.13 168 / .15)' : 'oklch(0.7 0.12 50 / .15)', color: ready ? 'oklch(0.78 0.13 168)' : 'oklch(0.78 0.12 50)' }}>{ready ? '● готово к слиянию' : '● нужно ревью'}</span>
+              <span className="mono" style={{ fontSize: '.56rem', padding: '.3em .6em', borderRadius: 2, background: ready ? 'color-mix(in oklab, var(--ink-max) 15%, transparent)' : 'color-mix(in oklab, var(--ink-max) 15%, transparent)', color: ready ? 'var(--ink)' : 'var(--ink)' }}>{ready ? '● готово к слиянию' : '● нужно ревью'}</span>
               <select value={storyId} onChange={e => setStoryId(e.target.value)} className="mono" style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '4px 7px', fontSize: '.6rem' }}>
                 {STORIES.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
               </select>
@@ -1643,7 +1643,7 @@ function Merge({ go }) {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 18, textAlign: 'right' }}>
-            <div><div className="display" style={{ fontSize: '1.6rem', color: 'oklch(0.78 0.13 150)' }}>{applied}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>правок</div></div>
+            <div><div className="display" style={{ fontSize: '1.6rem', color: 'var(--ink)' }}>{applied}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>правок</div></div>
             <div><div className="display" style={{ fontSize: '1.6rem', color: 'var(--ink-3)' }}>{changes.length}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>отличий</div></div>
           </div>
         </div>
@@ -1670,7 +1670,7 @@ function Merge({ go }) {
               {checks.map((c, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                   <span style={{ width: 18, height: 18, borderRadius: '50%', display: 'grid', placeItems: 'center', flex: '0 0 auto',
-                    background: c.ok ? 'oklch(0.7 0.13 150 / .18)' : 'oklch(0.7 0.12 50 / .18)', color: c.ok ? 'oklch(0.78 0.13 150)' : 'oklch(0.78 0.12 50)' }}>
+                    background: c.ok ? 'color-mix(in oklab, var(--ink-max) 18%, transparent)' : 'color-mix(in oklab, var(--ink-max) 18%, transparent)', color: c.ok ? 'var(--ink)' : 'var(--ink)' }}>
                     <Icon name={c.ok ? 'check' : 'flame'} size={11} />
                   </span>
                   <span style={{ fontSize: '.84rem', color: c.ok ? 'var(--ink-2)' : 'var(--ink)' }}>{c.label}</span>
@@ -1685,10 +1685,10 @@ function Merge({ go }) {
               {REVIEWERS.map(a => {
                 const ok = !!approvals[a];
                 return (
-                  <button key={a} onClick={() => toggleApprove(a)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 4, border: '1px solid ' + (ok ? 'oklch(0.7 0.13 150 / .5)' : 'var(--line-soft)'), background: ok ? 'oklch(0.7 0.13 150 / .1)' : 'transparent', textAlign: 'left' }}>
+                  <button key={a} onClick={() => toggleApprove(a)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 4, border: '1px solid ' + (ok ? 'color-mix(in oklab, var(--ink-max) 50%, transparent)' : 'var(--line-soft)'), background: ok ? 'color-mix(in oklab, var(--ink-max) 10%, transparent)' : 'transparent', textAlign: 'left' }}>
                     <Avatar name={a} size={26} />
                     <span style={{ flex: 1, fontSize: '.82rem' }}>@{a}</span>
-                    <span style={{ color: ok ? 'oklch(0.78 0.13 150)' : 'var(--ink-3)' }}><Icon name={ok ? 'check' : 'plus'} size={14} /></span>
+                    <span style={{ color: ok ? 'var(--ink)' : 'var(--ink-3)' }}><Icon name={ok ? 'check' : 'plus'} size={14} /></span>
                   </button>
                 );
               })}
@@ -1835,9 +1835,9 @@ function LoreGraph({ go }) {
                       opacity: active || near || !neighbors.size ? 1 : .45, transition: '.25s var(--ease)',
                     }}>
                       <span style={{ width: active ? 54 : 46, height: active ? 54 : 46, borderRadius: '50%', display: 'grid', placeItems: 'center',
-                        background: `oklch(0.7 0.12 ${hue} / .14)`, border: `1.5px solid oklch(0.7 0.13 ${hue} / ${active ? 1 : .6})`,
-                        boxShadow: active ? `0 0 22px -4px oklch(0.7 0.13 ${hue} / .7)` : 'none', transition: '.25s var(--ease)',
-                        fontFamily: 'var(--display)', fontWeight: 700, color: `oklch(0.82 0.12 ${hue})`, fontSize: active ? '1.1rem' : '.95rem' }}>
+                        background: 'var(--bg-3)', border: active ? '1.5px solid var(--ink-max)' : '1.5px solid var(--line)',
+                        boxShadow: 'none', transition: 'border-color var(--ms-color) var(--ease-color)',
+                        fontFamily: 'var(--display)', fontWeight: 700, color: 'var(--ink)', fontSize: active ? '1.1rem' : '.95rem' }}>
                         {(CHARACTERS[id] && CHARACTERS[id].glyph) || nameFor(id)[0]}
                       </span>
                       <span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>{nameFor(id)}</span>
@@ -1851,7 +1851,7 @@ function LoreGraph({ go }) {
           <div className="reveal" style={{ display: 'flex', gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
             {Object.entries(CHAR_STATUS).map(([k, v]) => (
               <span key={k} className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <span className="dot" style={{ background: `oklch(0.7 0.13 ${v.hue})` }} />{v.label}
+                <span className="dot" />{v.label}
               </span>
             ))}
             <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginLeft: 'auto' }}>цвет узла = статус на верхушке канона</span>
@@ -1869,7 +1869,7 @@ function LoreGraph({ go }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {appearances.map(ap => (
                   <button key={ap.id} onClick={() => go('reader', { story: storyId, node: ap.id })}
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', padding: '5px 7px', borderRadius: 4, border: '1px solid var(--line-soft)', background: ap.canon ? 'oklch(0.8 0.1 90 / .06)' : 'transparent' }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', padding: '5px 7px', borderRadius: 4, border: '1px solid var(--line-soft)', background: ap.canon ? 'color-mix(in oklab, var(--ink-max) 6%, transparent)' : 'transparent' }}>
                     {ap.canon && <span style={{ color: 'var(--gold)', fontSize: '.7rem' }}>✦</span>}
                     <span style={{ flex: 1, fontSize: '.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ap.title}</span>
                     <StatusPill status={ap.status} />
@@ -1883,14 +1883,14 @@ function LoreGraph({ go }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <h3 className="display" style={{ fontSize: '1.05rem' }}>Проверка канона</h3>
               <span className="mono" style={{ fontSize: '.5rem', padding: '.25em .55em', borderRadius: 2,
-                background: issues.length ? 'oklch(0.7 0.12 35 / .15)' : 'oklch(0.7 0.13 150 / .15)',
-                color: issues.length ? 'oklch(0.78 0.13 35)' : 'oklch(0.78 0.13 150)' }}>
+                background: issues.length ? 'color-mix(in oklab, var(--ink-max) 15%, transparent)' : 'color-mix(in oklab, var(--ink-max) 15%, transparent)',
+                color: issues.length ? 'var(--ink)' : 'var(--ink)' }}>
                 {issues.length ? `${issues.length} замеч.` : 'чисто'}
               </span>
             </div>
             <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 14 }}>сканируем канон-цепочку на противоречия в судьбах героев</p>
             {issues.length === 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'oklch(0.78 0.13 150)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--ink)' }}>
                 <Icon name="check" size={16} /><span style={{ fontSize: '.86rem' }}>{charIds.length ? 'Противоречий не найдено' : 'Нечего проверять'}</span>
               </div>
             ) : (
@@ -1898,10 +1898,10 @@ function LoreGraph({ go }) {
                 {issues.map(iss => {
                   const hue = iss.sev === 'high' ? 25 : iss.sev === 'mid' ? 50 : 86;
                   return (
-                    <div key={iss.id} style={{ borderLeft: `2px solid oklch(0.7 0.14 ${hue})`, paddingLeft: 11 }}>
+                    <div key={iss.id} style={{ borderLeft: `2px solid var(--ink-max)`, paddingLeft: 11 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                         <span style={{ fontWeight: 600, fontSize: '.88rem' }}>{KIND_LABEL[iss.kind] || 'Неувязка'} · {iss.charName}</span>
-                        <span className="mono" style={{ fontSize: '.46rem', color: `oklch(0.78 0.13 ${hue})`, textTransform: 'uppercase' }}>{iss.sev}</span>
+                        <span className="mono" style={{ fontSize: '.46rem', color: 'var(--ink)', textTransform: 'uppercase' }}>{iss.sev}</span>
                       </div>
                       <p style={{ fontSize: '.82rem', color: 'var(--ink-2)', marginBottom: 8 }}>{iss.text}</p>
                       <div style={{ display: 'flex', gap: 6 }}>
@@ -2002,7 +2002,7 @@ function Stakes({ go }) {
           <div className="reveal card framed" style={{ padding: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
               <h2 className="display" style={{ fontSize: '1.4rem' }}>Развилка после «Северного тракта»</h2>
-              <span className="mono" style={{ fontSize: '.54rem', color: 'oklch(0.78 0.13 50)' }}>⧗ закрытие через 2 дня</span>
+              <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink)' }}>⧗ закрытие через 2 дня</span>
             </div>
             <p className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 18 }}>распредели очки признания · ставка усиливает ветвь, набравшая больше станет золотым каноном</p>
 
@@ -2052,7 +2052,7 @@ function Stakes({ go }) {
             {/* stacked bar */}
             <div style={{ display: 'flex', height: 30, borderRadius: 3, overflow: 'hidden', marginBottom: 16 }}>
               {ROYALTY.splits.map((s, i) => (
-                <div key={s.author} title={`@${s.author} · ${s.weight}%`} style={{ width: s.weight + '%', background: `oklch(${0.5 + i * 0.08} 0.12 ${168 - i * 34})`, display: 'grid', placeItems: 'center' }}>
+                <div key={s.author} title={`@${s.author} · ${s.weight}%`} style={{ width: s.weight + '%', background: `color-mix(in oklab, var(--ink-max) ${90 - i * 16}%, transparent)`, display: 'grid', placeItems: 'center' }}>
                   <span className="mono" style={{ fontSize: '.5rem', color: 'var(--accent-ink)' }}>{s.weight}%</span>
                 </div>
               ))}
@@ -2060,7 +2060,7 @@ function Stakes({ go }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {ROYALTY.splits.map((s, i) => (
                 <div key={s.author} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 8, borderBottom: i < ROYALTY.splits.length - 1 ? 'var(--rule-style)' : 'none' }}>
-                  <span className="dot" style={{ background: `oklch(${0.5 + i * 0.08} 0.12 ${168 - i * 34})`, width: 9, height: 9 }} />
+                  <span className="dot" style={{ background: `color-mix(in oklab, var(--ink-max) ${90 - i * 16}%, transparent)`, width: 9, height: 9 }} />
                   <Avatar name={s.author} size={24} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '.88rem', fontWeight: 600 }}>@{s.author}</div>
@@ -2081,7 +2081,7 @@ function Stakes({ go }) {
           <div className="card" style={{ padding: 18 }}>
             <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 8 }}>Очки признания</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span className="display" style={{ fontSize: '2.2rem', color: left < 50 ? 'oklch(0.78 0.13 50)' : 'var(--accent)' }}>{left}</span>
+              <span className="display" style={{ fontSize: '2.2rem', color: left < 50 ? 'var(--ink)' : 'var(--accent)' }}>{left}</span>
               <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>/ {BUDGET} очков свободно</span>
             </div>
             <div style={{ height: 4, background: 'var(--line-soft)', borderRadius: 4, overflow: 'hidden', margin: '10px 0 6px' }}>
@@ -2112,7 +2112,7 @@ function Stakes({ go }) {
                     <div style={{ fontSize: '.78rem' }}>{l.what}</div>
                     <div className="mono" style={{ fontSize: '.48rem', color: 'var(--ink-3)' }}>@{l.who} · {l.t} назад</div>
                   </div>
-                  <span className="mono" style={{ fontSize: '.58rem', color: 'oklch(0.78 0.13 150)' }}>{l.w}</span>
+                  <span className="mono" style={{ fontSize: '.58rem', color: 'var(--ink)' }}>{l.w}</span>
                 </div>
               ))}
             </div>
@@ -2197,8 +2197,8 @@ function WritersRoom({ go }) {
         </div>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           {live ? (
-            <span className="mono live-badge" style={{ fontSize: '.6rem', color: 'oklch(0.7 0.2 25)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'oklch(0.7 0.2 25)' }} />В ЭФИРЕ
+            <span className="mono live-badge" style={{ fontSize: '.6rem', color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink)' }} />В ЭФИРЕ
             </span>
           ) : (
             <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Сервер realtime не подключён — локальная симуляция эстафеты">
@@ -2215,7 +2215,7 @@ function WritersRoom({ go }) {
           <div className="reveal card framed" style={{ padding: 24, position: 'relative' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>живой манускрипт · абзац {history.length + 1}</span>
-              <span className="mono" style={{ fontSize: '.56rem', color: secs < 10 ? 'oklch(0.7 0.2 25)' : 'var(--ink-2)' }}>
+              <span className="mono" style={{ fontSize: '.56rem', color: secs < 10 ? 'var(--ink)' : 'var(--ink-2)' }}>
                 {holder ? (iHold ? `твой ход · 0:${String(secs).padStart(2, '0')}` : `ход @${nick(holder)} · 0:${String(secs).padStart(2, '0')}`) : 'перо свободно'}
               </span>
             </div>
@@ -2268,7 +2268,7 @@ function WritersRoom({ go }) {
                     position: 'relative', textAlign: 'left', padding: '12px 14px', borderRadius: 5, overflow: 'hidden',
                     border: '1px solid ' + (isLead ? 'var(--accent)' : 'var(--line)'), cursor: voted ? 'default' : 'pointer',
                   }}>
-                    <div style={{ position: 'absolute', inset: 0, width: pct + '%', background: isLead ? 'oklch(0.7 0.13 168 / .14)' : 'var(--bg-3)', transition: 'width .5s var(--ease)' }} />
+                    <div style={{ position: 'absolute', inset: 0, width: pct + '%', background: isLead ? 'color-mix(in oklab, var(--ink-max) 14%, transparent)' : 'var(--bg-3)', transition: 'width .5s var(--ease)' }} />
                     <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                       <span style={{ fontSize: '.92rem' }}>{d.text}{mine && <span className="mono" style={{ fontSize: '.46rem', color: 'var(--accent)', marginLeft: 6 }}>твой голос</span>}</span>
                       <span className="mono" style={{ fontSize: '.7rem', color: isLead ? 'var(--accent)' : 'var(--ink-2)', flex: '0 0 auto' }}>{pct}%</span>
@@ -2297,11 +2297,11 @@ function WritersRoom({ go }) {
                   <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', borderTop: i ? 'var(--rule-style)' : 'none' }}>
                     <span style={{ position: 'relative' }}>
                       <Avatar name={id} size={30} />
-                      {isHolder && <span style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: 'oklch(0.7 0.2 25)', border: '2px solid var(--bg-2)' }} />}
+                      {isHolder && <span style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: 'var(--ink)', border: '2px solid var(--bg-2)' }} />}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: '.86rem', fontWeight: 600 }}>@{nick(id)}</div>
-                      <div className="mono" style={{ fontSize: '.48rem', color: isHolder ? 'oklch(0.7 0.2 25)' : 'var(--ink-3)' }}>{isHolder ? 'пишет сейчас' : (i === 0 ? 'следующий' : 'в очереди')}</div>
+                      <div className="mono" style={{ fontSize: '.48rem', color: isHolder ? 'var(--ink)' : 'var(--ink-3)' }}>{isHolder ? 'пишет сейчас' : (i === 0 ? 'следующий' : 'в очереди')}</div>
                     </div>
                     {isHolder && <Icon name="quill" size={15} />}
                   </div>
@@ -2467,7 +2467,7 @@ function ReadersCut({ go }) {
             </div>
             <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 6 }}>Отклонение от канона</div>
             <div style={{ height: 6, background: 'var(--line-soft)', borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{ width: divPct + '%', height: '100%', background: divPct > 50 ? 'oklch(0.7 0.16 25)' : 'var(--accent)', transition: 'width .5s var(--ease)' }} />
+              <div style={{ width: divPct + '%', height: '100%', background: divPct > 50 ? 'var(--ink)' : 'var(--accent)', transition: 'width .5s var(--ease)' }} />
             </div>
             <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-2)', marginTop: 6 }}>{divPct}% твоей книги — вне золотой линии</div>
           </div>
@@ -2620,7 +2620,7 @@ const PLUGIN_SLOTS = [
   { id: 'topbar', label: 'Полоса сверху',   glyph: '▬' },
   { id: 'fab-r',  label: 'Плавающая кнопка', glyph: '●' },
 ];
-const PLUGIN_COLORS = ['oklch(0.74 0.13 168)', 'oklch(0.64 0.19 35)', 'oklch(0.62 0.15 272)', 'oklch(0.78 0.13 86)'];
+const PLUGIN_COLORS = ['var(--ink)', 'var(--ink)', 'var(--ink)', 'var(--ink)'];
 
 function PluginsScreen({ state, toggle, customs, addCustom, go }) {
   const ref = useReveal();
@@ -2676,7 +2676,7 @@ function PluginsScreen({ state, toggle, customs, addCustom, go }) {
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
                 {Object.entries(PLUGIN_CATS).map(([k, v]) => (
                   <button key={k} className="tag tag-btn" data-active={bCat === k} onClick={() => setBCat(k)} style={{ textTransform: 'none' }}>
-                    <span className="dot" style={{ background: `oklch(0.7 0.14 ${v.hue})` }} />{v.label}
+                    <span className="dot" />{v.label}
                   </button>
                 ))}
               </div>
@@ -2739,7 +2739,7 @@ function PluginsScreen({ state, toggle, customs, addCustom, go }) {
             <button className="tag tag-btn" data-active={!cat} onClick={() => setCat(null)}>Все</button>
             {Object.entries(PLUGIN_CATS).map(([k, v]) => (
               <button key={k} className="tag tag-btn" data-active={cat === k} onClick={() => setCat(cat === k ? null : k)} style={{ textTransform: 'none' }}>
-                <span className="dot" style={{ background: `oklch(0.7 0.14 ${v.hue})` }} />{v.label}
+                <span className="dot" />{v.label}
               </button>
             ))}
           </div>
@@ -2753,7 +2753,7 @@ function PluginsScreen({ state, toggle, customs, addCustom, go }) {
                 return (
                   <div key={p.id} className="reveal card" style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 12, borderColor: on ? 'var(--accent)' : undefined }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                      <span style={{ width: 44, height: 44, borderRadius: 10, flex: '0 0 auto', display: 'grid', placeItems: 'center', background: 'var(--bg-3)', border: `1.5px solid ${p.color || `oklch(0.7 0.13 ${v.hue})`}`, color: p.color || `oklch(0.78 0.13 ${v.hue})`, fontSize: 20 }}>{p.glyph}</span>
+                      <span style={{ width: 44, height: 44, borderRadius: 0, flex: '0 0 auto', display: 'grid', placeItems: 'center', background: 'var(--bg-3)', border: '1.5px solid var(--line)', color: 'var(--ink)', fontSize: 20 }}>{p.glyph}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <h3 className="display" style={{ fontSize: '1.1rem' }}>{p.name}</h3>
@@ -3806,10 +3806,10 @@ Object.assign(window, { Feed, Communities, Social, CommunityDetail, CommunityCre
 
 const ACCENTS = [
   { id: 'theme',  label: 'По теме', dot: 'var(--accent-default)', accent: null, gold: null },
-  { id: 'jade',   label: 'Нефрит',  dot: 'oklch(0.74 0.13 168)', accent: 'oklch(0.74 0.13 168)', gold: 'oklch(0.82 0.13 86)' },
-  { id: 'ember',  label: 'Уголь',   dot: 'oklch(0.64 0.19 35)',  accent: 'oklch(0.64 0.19 35)',  gold: 'oklch(0.80 0.13 70)' },
-  { id: 'indigo', label: 'Индиго',  dot: 'oklch(0.60 0.16 270)', accent: 'oklch(0.62 0.15 272)', gold: 'oklch(0.78 0.12 300)' },
-  { id: 'gold',   label: 'Золото',  dot: 'oklch(0.78 0.13 86)',  accent: 'oklch(0.76 0.13 86)',  gold: 'oklch(0.82 0.10 60)' },
+  { id: 'jade',   label: 'Нефрит',  dot: 'var(--ink)', accent: 'var(--ink)', gold: 'var(--ink)' },
+  { id: 'ember',  label: 'Уголь',   dot: 'var(--ink)',  accent: 'var(--ink)',  gold: 'var(--ink)' },
+  { id: 'indigo', label: 'Индиго',  dot: 'var(--ink)', accent: 'var(--ink)', gold: 'var(--ink)' },
+  { id: 'gold',   label: 'Золото',  dot: 'var(--ink)',  accent: 'var(--ink)',  gold: 'var(--ink)' },
 ];
 const FONTS = [
   { id: 'onest',    label: 'Onest',    stack: "'Onest', sans-serif" },
@@ -4003,7 +4003,7 @@ function SettingsDrawer({ open, onClose, theme, setTheme, accent, setAccent, fon
   const byId = Object.fromEntries(PLUGIN_REGISTRY.map(p => [p.id, p]));
   return (
     <React.Fragment>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'oklch(0 0 0 / .5)', backdropFilter: 'blur(2px)', opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none', transition: 'opacity .4s', zIndex: 60 }} />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'color-mix(in oklab, var(--ink-max) 50%, transparent)', opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none', transition: 'opacity .4s', zIndex: 60 }} />
       <aside style={{
         position: 'fixed', top: 0, right: 0, height: '100%', width: 'min(380px, 92vw)', zIndex: 61,
         background: 'var(--bg-2)', borderLeft: 'var(--rule-style)', boxShadow: 'var(--shadow-card)',
@@ -4027,29 +4027,6 @@ function SettingsDrawer({ open, onClose, theme, setTheme, accent, setAccent, fon
                   <Icon name={ic} size={18} />
                   <span className="display" style={{ fontSize: '.95rem', marginTop: 8 }}>{l}</span>
                   <span className="mono" style={{ fontSize: '.46rem', color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.3 }}>{d}</span>
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <Field label="Акцентный цвет">
-            <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-              {ACCENTS.map(a => (
-                <button key={a.id} onClick={() => setAccent(a.id)} title={a.label}
-                  style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                  <span style={{ width: 30, height: 30, borderRadius: '50%', background: a.dot, boxShadow: accent === a.id ? '0 0 0 2px var(--bg-2), 0 0 0 4px var(--ink)' : '0 0 0 1px var(--line)', transition: '.2s' }} />
-                  <span className="mono" style={{ fontSize: '.46rem', color: accent === a.id ? 'var(--ink)' : 'var(--ink-3)' }}>{a.label}</span>
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <Field label="Шрифт заголовков">
-            <div style={{ display: 'flex', gap: 8 }}>
-              {FONTS.map(f => (
-                <button key={f.id} onClick={() => setFont(f.id)} className="swatch-tile" data-active={font === f.id} style={{ flex: 1 }}>
-                  <span style={{ fontFamily: f.stack, fontSize: '1.3rem', fontWeight: 700 }}>Wy</span>
-                  <span className="mono" style={{ fontSize: '.46rem', color: 'var(--ink-3)', marginTop: 4 }}>{f.label}</span>
                 </button>
               ))}
             </div>
