@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import DOMPurify from 'dompurify'
 import * as store from './lib/store.js'
+import * as diff from './lib/diff.js'
 
 // Strict allowlist sanitizer for chapter HTML (editor + imported .docx).
 // Kills <script>, event handlers, javascript: URLs, styles — anything that
@@ -1168,12 +1169,33 @@ function MergeHunk({ h, decision, onDecide }) {
 
 function Merge({ go }) {
   const ref = useReveal();
-  const [dec, setDec] = useState({ 5: null }); // hunk decisions
-  const onDecide = (id, v) => setDec(d => ({ ...d, [id]: v }));
-  const conflict = MERGE_HUNKS.find(h => h.type === 'conflict');
-  const resolved = dec[conflict.id] != null;
-  const accepted = MERGE_HUNKS.filter(h => (h.type === 'add' || h.type === 'del') && dec[h.id] !== 'reject').length;
+  const { STORIES } = window.WYRM;
+  const [storyId, setStoryId] = useState('ashes');
+  const { nodes } = useStoryNodes(storyId);
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const [targetId, setTargetId] = useState(null);
+  const [sourceId, setSourceId] = useState(null);
+  const [dec, setDec] = useState({});
   const [merged, setMerged] = useState(false);
+  const [mergedTitle, setMergedTitle] = useState('');
+
+  // дефолт: родитель с ≥2 ветвями → target = канон, source = другая ветвь
+  useEffect(() => {
+    if (!nodes.length) return;
+    const kids = {}; nodes.forEach(n => { if (n.parent) (kids[n.parent] = kids[n.parent] || []).push(n); });
+    const pair = Object.values(kids).find(a => a.length >= 2);
+    let t, s;
+    if (pair) { t = (pair.find(x => x.canon) || pair[0]); s = (pair.find(x => x !== t) || pair[1]); }
+    else { t = nodes[0]; s = nodes[1] || nodes[0]; }
+    setTargetId(t && t.id); setSourceId(s && s.id); setDec({}); setMerged(false);
+  }, [storyId, nodes.length]);
+
+  const target = byId[targetId], source = byId[sourceId];
+  const plain = (n) => (n ? (htmlToText(n.html || '') || n.excerpt || '') : '');
+  const hunks = useMemo(() => (target && source) ? diff.diffSentences(plain(target), plain(source)).map((h, i) => ({ ...h, id: i })) : [], [targetId, sourceId, nodes.length]);
+  const onDecide = (id, v) => setDec(d => ({ ...d, [id]: v }));
+  const changes = hunks.filter(h => h.type !== 'ctx');
+  const applied = changes.filter(h => dec[h.id] !== 'reject').length;
 
   const REVIEWERS = ['eira_noct', 'mara.q', 'nyx___'];
   const [approvals, setApprovals] = useState({});
@@ -1181,36 +1203,60 @@ function Merge({ go }) {
   const toggleApprove = (a) => setApprovals(s => ({ ...s, [a]: !s[a] }));
 
   const checks = [
-    { ok: resolved, label: resolved ? 'Конфликт разрешён' : 'Есть неразрешённый конфликт' },
-    { ok: resolved && accepted >= 1, label: accepted >= 1 ? 'Lore-Graph: непротиворечивость пройдена' : 'Нет принятых правок' },
+    { ok: !!source && !!target && source.id !== target.id, label: source && target && source.id !== target.id ? 'Выбраны две разные главы' : 'Выбери источник и цель' },
+    { ok: applied >= 1, label: applied >= 1 ? applied + ' правок к применению' : 'Нет принятых правок' },
     { ok: approvedCount >= 2, label: approvedCount + ' / 2 ревьюера одобрили' },
   ];
   const ready = checks.every(c => c.ok);
 
+  const doMerge = async () => {
+    if (!ready || !target) return;
+    const mergedText = diff.applyMerge(hunks, dec);
+    const me = wyrmLoad('wyrm.user', null);
+    const title = (target.title || 'Глава') + ' · слияние';
+    const node = {
+      id: target.id + 'm' + Date.now().toString(36).slice(-4), parent: target.id, story: storyId,
+      title, author: (me && (me.handle || me.name)) || 'аноним', canon: false, score: 0.3, votes: 0,
+      words: mergedText.split(/\s+/).filter(Boolean).length, tags: target.tags || [],
+      excerpt: mergedText.length > 320 ? mergedText.slice(0, 317) + '…' : mergedText,
+      html: cleanHtml('<p>' + mergedText.replace(/</g, '&lt;') + '</p>'), chars: { ...(target.chars || {}) },
+    };
+    await store.addNode(node);
+    setMergedTitle(title); setMerged(true);
+  };
+
+  const nodeOpts = nodes.map(n => <option key={n.id} value={n.id}>{(n.canon ? '★ ' : '') + (n.title || n.id)}</option>);
+
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>
       <div className="reveal" style={{ marginBottom: 8 }}>
-        <button className="mono path-crumb" onClick={() => go('reader')} style={{ color: 'var(--ink-3)', display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 18 }}><Icon name="arrowL" size={13} />древо</button>
+        <button className="mono path-crumb" onClick={() => go('reader', { story: storyId })} style={{ color: 'var(--ink-3)', display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 18 }}><Icon name="arrowL" size={13} />древо</button>
         <div className="eyebrow" style={{ marginBottom: 12 }}>Механика 01 · Narrative Merge — git для прозы</div>
       </div>
 
-      {/* PR header */}
+      {/* PR header + выбор глав */}
       <div className="reveal card framed" style={{ padding: '20px 24px', marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <span className="mono" style={{ fontSize: '.56rem', padding: '.3em .6em', borderRadius: 2, background: ready ? 'oklch(0.7 0.13 168 / .15)' : 'oklch(0.7 0.12 50 / .15)', color: ready ? 'oklch(0.78 0.13 168)' : 'oklch(0.78 0.12 50)' }}>{ready ? '● готово к слиянию' : '● нужно ревью'}</span>
-              <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>запрос #42</span>
+              <select value={storyId} onChange={e => setStoryId(e.target.value)} className="mono" style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '4px 7px', fontSize: '.6rem' }}>
+                {STORIES.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+              </select>
             </div>
-            <h1 className="display" style={{ fontSize: 'clamp(1.7rem,3.6vw,2.6rem)' }}>Правка главы «Цитадель молчания»</h1>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-              <Avatar name="grimwarden" size={22} />
-              <span className="mono" style={{ fontSize: '.58rem', color: 'var(--ink-3)' }}>@grimwarden хочет влить ветку в канон · 3 правки, 1 конфликт</span>
+            <h1 className="display" style={{ fontSize: 'clamp(1.6rem,3.4vw,2.4rem)' }}>Слияние ветви в канон</h1>
+            <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+              <label className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', display: 'flex', flexDirection: 'column', gap: 4 }}>источник (что вливаем)
+                <select value={sourceId || ''} onChange={e => { setSourceId(e.target.value); setDec({}); setMerged(false); }} style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '5px 7px', fontSize: '.7rem' }}>{nodeOpts}</select>
+              </label>
+              <label className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', display: 'flex', flexDirection: 'column', gap: 4 }}>цель (канон)
+                <select value={targetId || ''} onChange={e => { setTargetId(e.target.value); setDec({}); setMerged(false); }} style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '5px 7px', fontSize: '.7rem' }}>{nodeOpts}</select>
+              </label>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 18, textAlign: 'right' }}>
-            <div><div className="display" style={{ fontSize: '1.6rem', color: 'oklch(0.78 0.13 150)' }}>+{accepted}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>принято</div></div>
-            <div><div className="display" style={{ fontSize: '1.6rem', color: 'var(--ink-3)' }}>{MERGE_HUNKS.length}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>хунков</div></div>
+            <div><div className="display" style={{ fontSize: '1.6rem', color: 'oklch(0.78 0.13 150)' }}>{applied}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>правок</div></div>
+            <div><div className="display" style={{ fontSize: '1.6rem', color: 'var(--ink-3)' }}>{changes.length}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>отличий</div></div>
           </div>
         </div>
       </div>
@@ -1219,10 +1265,12 @@ function Merge({ go }) {
         {/* diff */}
         <div className="reveal card" style={{ overflow: 'hidden' }}>
           <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', padding: '12px 14px', borderBottom: 'var(--rule-style)', display: 'flex', justifyContent: 'space-between' }}>
-            <span>нарративный дифф · канон ← @grimwarden</span><span>гл. A1a</span>
+            <span>нарративный дифф · «{target ? target.title : '—'}» ← «{source ? source.title : '—'}»</span><span>{changes.length} отличий</span>
           </div>
           <div style={{ padding: '8px 0' }}>
-            {MERGE_HUNKS.map(h => <MergeHunk key={h.id} h={h} decision={dec[h.id]} onDecide={onDecide} />)}
+            {hunks.length === 0
+              ? <div className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', padding: '20px 14px' }}>Главы идентичны или не выбраны.</div>
+              : hunks.map(h => <MergeHunk key={h.id} h={h} decision={dec[h.id]} onDecide={onDecide} />)}
           </div>
         </div>
 
@@ -1261,17 +1309,18 @@ function Merge({ go }) {
 
           {merged ? (
             <div className="card" style={{ padding: 18, textAlign: 'center', borderColor: 'var(--gold)' }}>
-              <span style={{ color: 'var(--gold)' }}><Icon name="star" size={22} /></span>
-              <div className="display" style={{ fontSize: '1.1rem', margin: '8px 0 4px' }}>Влито в канон</div>
-              <p className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>{accepted} правок стали официальной линией истории</p>
+              <span style={{ color: 'var(--gold)' }}><Icon name="branch" size={22} /></span>
+              <div className="display" style={{ fontSize: '1.1rem', margin: '8px 0 4px' }}>Слияние записано</div>
+              <p className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>Создана глава «{mergedTitle}» с {applied} применёнными правками</p>
+              <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => go('reader', { story: storyId, node: targetId })}>К древу<Icon name="arrow" size={14} /></button>
             </div>
           ) : (
-            <button className="btn btn-primary" disabled={!ready} onClick={() => setMerged(true)}
+            <button className="btn btn-primary" disabled={!ready} onClick={doMerge}
               style={{ justifyContent: 'center', opacity: ready ? 1 : .5 }}>
-              <Icon name="branch" size={16} />{ready ? 'Слить в канон' : 'Разреши конфликт'}
+              <Icon name="branch" size={16} />{ready ? 'Слить в канон' : 'Заверши ревью'}
             </button>
           )}
-          <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>История версионируется — прежний канон сохраняется как ветка</p>
+          <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>Чужой текст не меняется — результат сохраняется новой главой</p>
         </aside>
       </div>
     </div>
