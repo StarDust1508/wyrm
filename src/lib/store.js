@@ -315,12 +315,14 @@ const mapNode = (n) => ({
   tags: n.tags || [], excerpt: n.excerpt || '', html: n.html || '', chars: n.chars || {},
 });
 
-/* ---- голоса (демо хранит свои голоса в браузере) ---- */
+/* ---- голоса и ставки (демо хранит в браузере) ---- */
 export function getVotes() { return load('wyrm.votes', {}); }
+export function getStakes() { return load('wyrm.stakes', {}); }
 
-/* ---- канон «лидер среди сиблингов» (чистые функции, общий дисплей) ---- */
+/* ---- канон «лидер среди сиблингов» (чистые функции, общий дисплей) ----
+   overlay — числовая прибавка к голосам узла (голос = +1, ставка = +очки). */
 export function canonPath(nodes, overlay = {}) {
-  const eff = (n) => (n.votes || 0) + (overlay[n.id] ? 1 : 0);
+  const eff = (n) => (n.votes || 0) + (Number(overlay[n.id]) || 0);
   const kids = {};
   nodes.forEach(n => { const p = n.parent || '__root'; (kids[p] = kids[p] || []).push(n); });
   const leader = (sibs) => sibs.reduce((b, s) =>
@@ -335,8 +337,26 @@ export function markCanon(nodes, overlay = {}) {
   const cp = new Set(canonPath(nodes, overlay));
   return nodes.map(n => ({ ...n, canon: cp.has(n.id) }));
 }
-// overlay голосов применяется только в демо (в PB голоса уже в node.votes)
-export const voteOverlay = () => (enabled ? {} : getVotes());
+// overlay применяется только в демо (в PB голоса/ставки уже в node.votes):
+// голос = +1, ставка = +очки признания.
+export const voteOverlay = () => {
+  if (enabled) return {};
+  const v = getVotes(), st = getStakes(), o = {};
+  Object.keys(v).forEach(k => { if (v[k]) o[k] = (o[k] || 0) + 1; });
+  Object.keys(st).forEach(k => { o[k] = (o[k] || 0) + (st[k] || 0); });
+  return o;
+};
+// ставка очков признания на ветвь = усиленный голос
+export async function stakeNode(nodeId, points) {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb);
+    if (!me) throw new Error('Нужно войти');
+    try { await pb.collection('votes').create({ node: nodeId, user: me.id, weight: points }); } catch (e) {}
+    return points;
+  }
+  const st = getStakes(); st[nodeId] = (st[nodeId] || 0) + points; save('wyrm.stakes', st);
+  return st[nodeId];
+}
 
 /* ---- stories ---- */
 export async function listStories() {

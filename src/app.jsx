@@ -1543,7 +1543,8 @@ const ROYALTY = {
 
 function Stakes({ go }) {
   const ref = useReveal();
-  const BUDGET = 500;
+  const me = wyrmLoad('wyrm.user', null);
+  const BUDGET = (me && me.reputation) || 200;        // бюджет = очки репутации автора
   const [alloc, setAlloc] = useState({ A1a: 0, A1b: 0 });
   const [committed, setCommitted] = useState(false);
   const spent = alloc.A1a + alloc.A1b;
@@ -1553,7 +1554,13 @@ function Stakes({ go }) {
     const max = BUDGET - other;
     return { ...a, [id]: Math.max(0, Math.min(max, v)) };
   });
-  const palette = { hue: 168 };
+  const liveOf = (c) => c.pool + (committed ? alloc[c.id] : 0);
+  const leadId = liveOf(STAKE_CANDIDATES[0]) >= liveOf(STAKE_CANDIDATES[1]) ? STAKE_CANDIDATES[0].id : STAKE_CANDIDATES[1].id;
+  // ставка = усиленный голос: пишем очки в store (влияет на канон в Древе)
+  const commit = async () => {
+    for (const c of STAKE_CANDIDATES) if (alloc[c.id] > 0) await store.stakeNode(c.id, alloc[c.id]);
+    setCommitted(true);
+  };
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>
@@ -1570,14 +1577,14 @@ function Stakes({ go }) {
               <h2 className="display" style={{ fontSize: '1.4rem' }}>Развилка после «Северного тракта»</h2>
               <span className="mono" style={{ fontSize: '.54rem', color: 'oklch(0.78 0.13 50)' }}>⧗ закрытие через 2 дня</span>
             </div>
-            <p className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 18 }}>распредели влияние · набравшая больше станет золотым каноном</p>
+            <p className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 18 }}>распредели очки признания · ставка усиливает ветвь, набравшая больше станет золотым каноном</p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {STAKE_CANDIDATES.map(c => {
-                const live = c.pool + (committed ? alloc[c.id] : 0);
+                const live = liveOf(c);
                 const totalLive = STAKE_CANDIDATES.reduce((s, x) => s + x.pool, 0) + (committed ? spent : 0);
                 const pct = Math.round(live / totalLive * 100);
-                const leading = c.id === 'A1a';
+                const leading = c.id === leadId;
                 return (
                   <div key={c.id} style={{ border: '1px solid ' + (leading ? 'var(--gold)' : 'var(--line)'), borderRadius: 5, padding: 16, boxShadow: leading ? 'var(--canon-glow)' : 'none' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
@@ -1590,7 +1597,7 @@ function Stakes({ go }) {
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div className="display" style={{ fontSize: '1.5rem', color: leading ? 'var(--gold)' : 'var(--ink)' }}>{pct}%</div>
-                        <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{live.toLocaleString('ru')} ₲</div>
+                        <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{live.toLocaleString('ru')} очк.</div>
                       </div>
                     </div>
                     <div style={{ height: 6, background: 'var(--line-soft)', borderRadius: 6, overflow: 'hidden', margin: '12px 0' }}>
@@ -1599,7 +1606,7 @@ function Stakes({ go }) {
                     {!committed && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <input type="range" className="range" min="0" max={BUDGET} step="10" value={alloc[c.id]} onChange={e => set(c.id, +e.target.value)} style={{ flex: 1 }} />
-                        <span className="mono" style={{ fontSize: '.6rem', width: 70, textAlign: 'right', color: alloc[c.id] ? 'var(--accent)' : 'var(--ink-3)' }}>+{alloc[c.id]} ₲</span>
+                        <span className="mono" style={{ fontSize: '.6rem', width: 70, textAlign: 'right', color: alloc[c.id] ? 'var(--accent)' : 'var(--ink-3)' }}>+{alloc[c.id]} очк.</span>
                       </div>
                     )}
                   </div>
@@ -1612,7 +1619,7 @@ function Stakes({ go }) {
           <div className="reveal card" style={{ padding: 22 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
               <h2 className="display" style={{ fontSize: '1.4rem' }}>Сплит авторства</h2>
-              <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>пул месяца · {ROYALTY.pool.toLocaleString('ru')} ₲</span>
+              <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>пул месяца · {ROYALTY.pool.toLocaleString('ru')} очк.</span>
             </div>
             <p className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 16 }}>вклад в канон считается прозрачно — провенанс каждой главы</p>
             {/* stacked bar */}
@@ -1633,7 +1640,7 @@ function Stakes({ go }) {
                     <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{s.role}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div className="mono" style={{ fontSize: '.72rem' }}>{Math.round(ROYALTY.pool * s.weight / 100).toLocaleString('ru')} ₲</div>
+                    <div className="mono" style={{ fontSize: '.72rem' }}>{Math.round(ROYALTY.pool * s.weight / 100).toLocaleString('ru')} очк.</div>
                     <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{s.weight}%</div>
                   </div>
                 </div>
@@ -1645,25 +1652,25 @@ function Stakes({ go }) {
         {/* rail */}
         <aside style={{ position: 'sticky', top: 84, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card" style={{ padding: 18 }}>
-            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 8 }}>Твоё влияние</div>
+            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 8 }}>Очки признания</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
               <span className="display" style={{ fontSize: '2.2rem', color: left < 50 ? 'oklch(0.78 0.13 50)' : 'var(--accent)' }}>{left}</span>
-              <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>/ {BUDGET} ₲ свободно</span>
+              <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>/ {BUDGET} очков свободно</span>
             </div>
             <div style={{ height: 4, background: 'var(--line-soft)', borderRadius: 4, overflow: 'hidden', margin: '10px 0 6px' }}>
               <div style={{ width: (spent / BUDGET * 100) + '%', height: '100%', background: 'var(--accent)' }} />
             </div>
-            <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>влияние копится за принятые правки и победившие ветки</p>
+            <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>очки признания начисляются за принятые правки и победившие ветки (не деньги)</p>
 
             {committed ? (
               <div style={{ marginTop: 14, padding: 12, border: '1px solid var(--gold)', borderRadius: 4, textAlign: 'center' }}>
                 <span style={{ color: 'var(--gold)' }}><Icon name="check" size={18} /></span>
-                <div className="mono" style={{ fontSize: '.54rem', marginTop: 4 }}>Ставка принята · {spent} ₲</div>
-                <button className="mono path-crumb" onClick={() => { setCommitted(false); setAlloc({ A1a: 0, A1b: 0 }); }} style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginTop: 6 }}>сбросить</button>
+                <div className="mono" style={{ fontSize: '.54rem', marginTop: 4 }}>Ставка сделана · {spent} очков · ветвь усилена</div>
+                <button className="mono path-crumb" onClick={() => { setCommitted(false); setAlloc({ A1a: 0, A1b: 0 }); }} style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginTop: 6 }}>ещё</button>
               </div>
             ) : (
-              <button className="btn btn-primary" disabled={spent === 0} onClick={() => setCommitted(true)} style={{ width: '100%', justifyContent: 'center', marginTop: 14, opacity: spent ? 1 : .5 }}>
-                <Icon name="star" size={15} />Поставить {spent} ₲
+              <button className="btn btn-primary" disabled={spent === 0} onClick={commit} style={{ width: '100%', justifyContent: 'center', marginTop: 14, opacity: spent ? 1 : .5 }}>
+                <Icon name="star" size={15} />Поставить {spent} очков
               </button>
             )}
           </div>
