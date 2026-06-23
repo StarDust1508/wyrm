@@ -727,7 +727,14 @@ function useStoryNodes(storyId) {
   }, [storyId, tick]);
   const nodes = useMemo(() => store.markCanon(raw, store.voteOverlay()), [raw, tick]);
   const myVotes = store.voteOverlay();
-  const vote = async (id) => { await store.voteNode(id); setTick(t => t + 1); };
+  const vote = async (id) => {
+    // клиентский пред-чек self-vote (сервер тоже блокирует) — без unhandled rejection
+    const me = wyrmLoad('wyrm.user', null);
+    const n = nodes.find(x => x.id === id);
+    if (n && me && n.author && n.author === (me.handle || me.name)) { wyrmErr(null, 'Нельзя голосовать за собственную главу.'); return; }
+    try { await store.voteNode(id); } catch (e) { wyrmErr(e, 'Не удалось проголосовать.'); }
+    setTick(t => t + 1);
+  };
   const reload = () => setTick(t => t + 1);
   return { nodes, vote, reload, myVotes, loading };
 }
@@ -1030,7 +1037,10 @@ function Compose({ go, ctx, setCtx }) {
   const [NODES, setNODES] = useState(() => window.WYRM.nodesFor(storyId));
   useEffect(() => { let on = true; store.listNodes(storyId).then(n => { if (on && n && n.length) setNODES(n); }); return () => { on = false; }; }, [storyId]);
   const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
-  const parent = byId[ctx.forkFrom] || byId['A1a'] || NODES.find(n => !n.parent) || NODES[0];
+  // safe-фолбэк: NODES может быть [] для PB-only/только что созданной истории,
+  // пока listNodes не подгрузился — без этого useState(parent.tags) уронит экран (M3).
+  const parent = byId[ctx.forkFrom] || byId['A1a'] || NODES.find(n => !n.parent) || NODES[0]
+    || { id: '', title: '', excerpt: '', tags: [], chars: {} };
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [tags, setTags] = useState(parent.tags.slice(0, 2));
@@ -1075,8 +1085,10 @@ function Compose({ go, ctx, setCtx }) {
     const root = { id: id + '-root', parent: null, story: id, title: 'Глава 1', author,
       canon: true, score: 0.5, votes: 0, words, tags: story.tags,
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, html: cleanHtml(body), chars: {} };
-    await store.createStory(story, root);
-    setBookId(id); setNewId(root.id); setDone(true);
+    try {
+      await store.createStory(story, root);
+      setBookId(id); setNewId(root.id); setDone(true);
+    } catch (e) { wyrmErr(e, 'Не удалось опубликовать книгу.'); }
   };
 
   const ModeToggle = () => (
@@ -1105,9 +1117,11 @@ function Compose({ go, ctx, setCtx }) {
       chars: { ...chars },
       story: storyId,
     };
-    await store.addNode(node);
-    setNewId(node.id);
-    setDone(true);
+    try {
+      await store.addNode(node);
+      setNewId(node.id);
+      setDone(true);
+    } catch (e) { wyrmErr(e, 'Не удалось опубликовать ветвь.'); }
   };
 
   if (done) return (
@@ -1387,7 +1401,10 @@ function Merge({ go }) {
   const hunks = useMemo(() => (target && source) ? diff.diffSentences(plain(target), plain(source)).map((h, i) => ({ ...h, id: i })) : [], [targetId, sourceId, nodes.length]);
   const onDecide = (id, v) => setDec(d => ({ ...d, [id]: v }));
   const changes = hunks.filter(h => h.type !== 'ctx');
-  const applied = changes.filter(h => dec[h.id] !== 'reject').length;
+  // «применено»: add/del — если не отклонено; conflict — только если выбрана
+  // линия ветви (выбор канона = ветвь не вливается). Конфликт без решения молча
+  // оставляет канон и НЕ считается применённым (T7).
+  const applied = changes.filter(h => h.type === 'conflict' ? dec[h.id] === 'them' : dec[h.id] !== 'reject').length;
 
   const REVIEWERS = ['eira_noct', 'mara.q', 'nyx___'];
   const [approvals, setApprovals] = useState({});
@@ -1413,8 +1430,10 @@ function Merge({ go }) {
       excerpt: mergedText.length > 320 ? mergedText.slice(0, 317) + '…' : mergedText,
       html: cleanHtml('<p>' + mergedText.replace(/</g, '&lt;') + '</p>'), chars: { ...(target.chars || {}) },
     };
-    await store.addNode(node);
-    setMergedTitle(title); setMerged(true);
+    try {
+      await store.addNode(node);
+      setMergedTitle(title); setMerged(true);
+    } catch (e) { wyrmErr(e, 'Не удалось слить ветви.'); }
   };
 
   const nodeOpts = nodes.map(n => <option key={n.id} value={n.id}>{(n.canon ? '★ ' : '') + (n.title || n.id)}</option>);
@@ -1787,8 +1806,10 @@ function Stakes({ go }) {
   const leadId = liveOf(STAKE_CANDIDATES[0]) >= liveOf(STAKE_CANDIDATES[1]) ? STAKE_CANDIDATES[0].id : STAKE_CANDIDATES[1].id;
   // ставка = усиленный голос: пишем очки в store (влияет на канон в Древе)
   const commit = async () => {
-    for (const c of STAKE_CANDIDATES) if (alloc[c.id] > 0) await store.stakeNode(c.id, alloc[c.id]);
-    setCommitted(true);
+    try {
+      for (const c of STAKE_CANDIDATES) if (alloc[c.id] > 0) await store.stakeNode(c.id, alloc[c.id]);
+      setCommitted(true);
+    } catch (e) { wyrmErr(e, 'Не удалось поставить очки.'); }
   };
 
   return (
@@ -2900,6 +2921,13 @@ function wyrmLoad(key, fallback) {
   catch (e) { return fallback; }
 }
 function wyrmSave(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
+// Единая точка обратной связи об ошибке write-операции (PB может отклонить —
+// напр. голос за свой узел): показываем сообщение, чтобы UI не зависал молча.
+function wyrmErr(e, fallback) {
+  const msg = (e && e.message) ? e.message : (fallback || 'Что-то пошло не так. Попробуй ещё раз.');
+  try { if (typeof window !== 'undefined' && window.alert) window.alert(msg); else console.error('[WYRM]', msg); }
+  catch (_) { console.error('[WYRM]', msg); }
+}
 
 /* относительное время */
 function timeAgo(ts) {
@@ -3015,8 +3043,10 @@ function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName, 
   };
   const submitComment = async () => {
     const t = ctext.trim(); if (!t || !user) return;
-    const cm = await store.addComment(post.id, t, user.handle || user.name);
-    setComments(c => [...(c || []), cm]); setCtext('');
+    try {
+      const cm = await store.addComment(post.id, t, user.handle || user.name);
+      setComments(c => [...(c || []), cm]); setCtext('');
+    } catch (e) { wyrmErr(e, 'Не удалось отправить комментарий.'); }
   };
   const doRepost = async () => {
     if (!user || reposted) return;
@@ -3916,8 +3946,29 @@ function Field({ label, hint, children }) {
   );
 }
 
+// Граница ошибок: рендер-исключение в одном экране иначе размонтирует ВСЁ
+// дерево (бел. экран) — приложение однокомпонентное. Ловим и показываем фолбэк.
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { try { console.error('[WYRM] render error:', err, info); } catch (e) {} }
+  render() {
+    if (this.state.err) {
+      return (
+        <div className="view wrap" style={{ padding: '14vh 0', textAlign: 'center', maxWidth: 560, margin: '0 auto' }}>
+          <div style={{ color: 'var(--gold)' }}><Icon name="flame" size={30} /></div>
+          <h1 className="display" style={{ fontSize: 'clamp(1.6rem,4vw,2.4rem)', margin: '14px 0 12px' }}>Что-то сломалось</h1>
+          <p className="serif-italic" style={{ color: 'var(--ink-2)', marginBottom: 22 }}>Экран не отрисовался — это сбой интерфейса, твои данные на месте.</p>
+          <button className="btn btn-primary" onClick={() => { try { location.reload(); } catch (e) { this.setState({ err: null }); } }}>Перезагрузить</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // Cache the root on window so HMR re-runs reuse it instead of calling
 // createRoot twice on the same container (dev-only warning otherwise).
 const _wyrmRoot = (window.__wyrmRoot ||= ReactDOM.createRoot(document.getElementById('root')));
-_wyrmRoot.render(<App />);
+_wyrmRoot.render(<ErrorBoundary><App /></ErrorBoundary>);
 

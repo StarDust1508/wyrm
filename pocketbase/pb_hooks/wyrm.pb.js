@@ -67,6 +67,54 @@ function isAdminRequest(e) {
   }
 }
 
+// Id of the authenticated user making the request ("" if none / on error).
+function requesterId(e) {
+  try {
+    const info = $apis.requestInfo(e.httpContext);
+    return info && info.authRecord ? info.authRecord.id : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+// Force the owner relation (and display handle) on a content record to the
+// REQUESTER, so a logged-in user can't publish a node/post/story/comment under
+// someone else's id (which would also farm reputation onto a foreign account
+// when the node hits canon). Admin/seed requests are exempt.
+function forceAuthor(e, dao, field) {
+  if (isAdminRequest(e)) return;
+  const uid = requesterId(e);
+  if (!uid) return;
+  e.record.set(field || "author", uid);
+  try {
+    const u = dao.findRecordById("users", uid);
+    if (u) e.record.set("author_handle", u.getString("handle") || u.getString("name") || "");
+  } catch (_) {}
+}
+
+// Hard ceiling for a single vote's weight regardless of reputation.
+const HARD_WEIGHT_CAP = 1000;
+
+// Clamp a vote's weight to [1, min(HARD_CAP, max(1, voter reputation))].
+// A plain vote is always weight 1; a stake can never exceed the recognition
+// points the voter has actually earned — closing the weight-injection bypass
+// (client could otherwise POST weight=9999 and win canon single-handedly).
+function clampVoteWeight(dao, voteRecord) {
+  let w = voteRecord.getInt("weight");
+  if (!w || w < 1) w = 1;
+  let budget = 1;
+  try {
+    const uid = voteRecord.getString("user");
+    if (uid) {
+      const u = dao.findRecordById("users", uid);
+      if (u) budget = Math.max(1, u.getInt("reputation"));
+    }
+  } catch (_) {}
+  const cap = Math.min(HARD_WEIGHT_CAP, budget);
+  if (w > cap) w = cap;
+  voteRecord.set("weight", w);
+}
+
 // Resolve which field on a vote record points at the node.
 function voteNodeField(voteRecord) {
   for (let i = 0; i < VOTE_NODE_FIELDS.length; i++) {
@@ -196,91 +244,84 @@ function makeExcerpt(text, max) {
 // Canon recompute (the core logic, shared by create/delete vote hooks)
 // ----------------------------------------------------------------------------
 
+// Symmetric reputation delta for an author (clamped at 0). Best-effort.
+function adjustRep(dao, authorId, delta) {
+  if (!authorId || !delta) return;
+  try {
+    const author = dao.findRecordById("users", authorId);
+    if (!author) return;
+    let next = author.getInt("reputation") + delta;
+    if (next < 0) next = 0;
+    author.set("reputation", next);
+    dao.saveRecord(author);
+  } catch (e) {
+    logErr("adjustRep " + authorId, e);
+  }
+}
+
+// Recompute the WHOLE canon path of a story ("лидер среди сиблингов", greedy
+// from the leader root down) and apply canon flips + symmetric reputation.
+// This is the authoritative mirror of the client's store.canonPath, and unlike
+// a one-level sibling election it correctly RE-PARENTS the golden line: when a
+// mid-tree node loses canon, its whole subtree drops out of canon too (no
+// orphaned canon=true descendants).
+function recomputeStoryCanon(dao, storyId) {
+  if (!storyId) return;
+  const nodes = dao.findRecordsByFilter("nodes", "story = {:sid}", "created", 0, 0, { sid: storyId });
+  if (!nodes || nodes.length === 0) return;
+
+  const kids = {}; // parentId|"__root" -> [records], in created order
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    const p = n.getString("parent") || "__root";
+    (kids[p] = kids[p] || []).push(n);
+  }
+  const eff = (n) => n.getInt("votes");
+  const leader = (sibs) => {
+    let best = sibs[0];
+    for (let i = 1; i < sibs.length; i++) {
+      const s = sibs[i];
+      if (eff(s) > eff(best) || (eff(s) === eff(best) && s.getFloat("score") > best.getFloat("score"))) best = s;
+    }
+    return best;
+  };
+
+  // Greedy walk: single leader root -> its leading child -> ... (cycle-guarded).
+  const canonIds = {};
+  let cur = (kids["__root"] && kids["__root"].length) ? leader(kids["__root"]) : null;
+  const guard = {};
+  while (cur && !guard[cur.getId()]) {
+    guard[cur.getId()] = true;
+    canonIds[cur.getId()] = true;
+    const ch = kids[cur.getId()];
+    cur = (ch && ch.length) ? leader(ch) : null;
+  }
+
+  // Apply: flip only changed nodes; adjust reputation on each transition.
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    const shouldBe = !!canonIds[n.getId()];
+    const was = n.getBool("canon");
+    if (was === shouldBe) continue;
+    n.set("canon", shouldBe);
+    dao.saveRecord(n);
+    adjustRep(dao, n.getString("author"), shouldBe ? REPUTATION_REWARD : -REPUTATION_REWARD);
+  }
+}
+
 function recomputeForNode(dao, nodeId) {
   if (!nodeId) return;
-
   const node = dao.findRecordById("nodes", nodeId);
   if (!node) return;
 
-  const storyId = node.getString("story");
-  const parentId = node.getString("parent"); // "" for root
-
-  // 1) refresh this node's own votes/score (votes = summed vote weight)
+  // 1) refresh the just-voted node's votes/score (votes = summed vote weight).
   const votes = sumVoteWeightForNode(dao, nodeId);
-  const score = clamp01(0.3 + votes * 0.05);
   node.set("votes", votes);
-  node.set("score", score);
-  // root nodes are canon by definition
-  if (parentId === "") node.set("canon", true);
+  node.set("score", clamp01(0.3 + votes * 0.05));
   dao.saveRecord(node);
 
-  // 2) recompute canon among siblings (same parent + same story).
-  //    Roots (empty parent) are all independently canon=true, so skip the
-  //    "one winner" election for them.
-  if (parentId === "") return;
-
-  let filter = "parent = {:pid}";
-  const params = { pid: parentId };
-  if (storyId !== "") {
-    filter += " && story = {:sid}";
-    params.sid = storyId;
-  }
-
-  const siblings = dao.findRecordsByFilter(
-    "nodes",
-    filter,
-    "created", // earliest first -> deterministic tie-break (asc)
-    0,
-    0,
-    params
-  );
-  if (!siblings || siblings.length === 0) return;
-
-  // Winner = highest votes; tie broken by earliest created (siblings already
-  // sorted ascending by created, so the first max we see wins the tie).
-  let winner = null;
-  let winnerVotes = -1;
-  for (let i = 0; i < siblings.length; i++) {
-    const s = siblings[i];
-    const v = s.getInt("votes");
-    if (v > winnerVotes) {
-      winnerVotes = v;
-      winner = s;
-    }
-  }
-
-  for (let i = 0; i < siblings.length; i++) {
-    const s = siblings[i];
-    const shouldBeCanon = winner && s.getId() === winner.getId();
-    const wasCanon = s.getBool("canon");
-    if (wasCanon === shouldBeCanon) continue; // no change -> no write
-
-    s.set("canon", shouldBeCanon);
-    dao.saveRecord(s);
-
-    // 3) reputation: SYMMETRIC so vote-flapping can't farm points.
-    //    +REWARD on the up-transition to canon, -REWARD on the down-transition
-    //    out of canon (clamped at 0). Best-effort — never fail the request.
-    try {
-      const authorId = s.getString("author");
-      if (authorId) {
-        const author = dao.findRecordById("users", authorId);
-        if (author) {
-          const cur = author.getInt("reputation");
-          let next = cur;
-          if (shouldBeCanon && !wasCanon) next = cur + REPUTATION_REWARD;
-          else if (!shouldBeCanon && wasCanon) next = cur - REPUTATION_REWARD;
-          if (next < 0) next = 0;
-          if (next !== cur) {
-            author.set("reputation", next);
-            dao.saveRecord(author);
-          }
-        }
-      }
-    } catch (repErr) {
-      logErr("reputation adjust for node " + s.getId(), repErr);
-    }
-  }
+  // 2) recompute the entire canon path for the story (handles re-parenting).
+  recomputeStoryCanon(dao, node.getString("story"));
 }
 
 // ----------------------------------------------------------------------------
@@ -300,6 +341,8 @@ onRecordBeforeCreateRequest((e) => {
   if (node && voter && node.getString("author") === voter) {
     throw new BadRequestError("Нельзя голосовать за собственный узел.");
   }
+  // anti weight-injection: bound the stake to the voter's earned reputation.
+  clampVoteWeight($app.dao(), e.record);
 }, "votes");
 
 onRecordAfterCreateRequest((e) => {
@@ -345,6 +388,7 @@ function sanitizeNodeRecord(record) {
 
 onRecordBeforeCreateRequest((e) => {
   try {
+    forceAuthor(e, $app.dao()); // owner = requester (anti author-spoofing)
     sanitizeNodeRecord(e.record);
     // canon/score/votes are SERVER-DERIVED — never trust the client on create.
     // A node starts with no votes; canon is true only for a root (no parent),
@@ -417,3 +461,24 @@ onRecordBeforeUpdateRequest((e) => {
     logErr("onRecordBeforeUpdateRequest(users)", err);
   }
 }, "users");
+
+// ----------------------------------------------------------------------------
+// Hook: content collections create  -> force author = requester
+// ----------------------------------------------------------------------------
+//
+// posts/stories/comments accept a client-supplied `author` relation and only
+// gate create with "@request.auth.id != ''", so without this a logged-in user
+// could publish under someone else's id. (nodes is handled in its own create
+// hook above.) Bind the owner to the requester; admin/seed are exempt.
+
+onRecordBeforeCreateRequest((e) => {
+  try { forceAuthor(e, $app.dao()); } catch (err) { logErr("onRecordBeforeCreateRequest(posts)", err); }
+}, "posts");
+
+onRecordBeforeCreateRequest((e) => {
+  try { forceAuthor(e, $app.dao()); } catch (err) { logErr("onRecordBeforeCreateRequest(stories)", err); }
+}, "stories");
+
+onRecordBeforeCreateRequest((e) => {
+  try { forceAuthor(e, $app.dao()); } catch (err) { logErr("onRecordBeforeCreateRequest(comments)", err); }
+}, "comments");

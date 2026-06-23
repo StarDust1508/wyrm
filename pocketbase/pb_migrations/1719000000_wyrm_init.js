@@ -509,6 +509,26 @@ migrate(
         ],
       })
     );
+
+    // =======================================================================
+    // 14) follows  (relation -> users; target by handle)  UNIQUE (follower,target)
+    //     owner-scoped: you manage only your own follows.
+    // =======================================================================
+    ensureCollection("follows", () =>
+      new Collection({
+        name: "follows",
+        type: "base",
+        listRule: "@request.auth.id = follower.id",
+        viewRule: "@request.auth.id = follower.id",
+        createRule: "@request.auth.id = follower.id",
+        updateRule: null,
+        deleteRule: "@request.auth.id = follower.id",
+        schema: [relation("follower", "users", true), text("target_handle", true)],
+        indexes: [
+          "CREATE UNIQUE INDEX `idx_follows_follower_target` ON `follows` (`follower`, `target_handle`)",
+        ],
+      })
+    );
   },
 
   // ---- DOWN migration: delete in reverse dependency order ------------------
@@ -525,6 +545,7 @@ migrate(
     };
 
     // reverse of creation order (children before parents)
+    drop("follows");
     drop("notifications");
     drop("workspace_presets");
     drop("reader_cuts");

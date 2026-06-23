@@ -15,8 +15,14 @@
  *   TURN_SECONDS  seconds a writer holds the pen     (default 90)
  *   HEARTBEAT_MS  ws ping interval in ms             (default 30000)
  *   PERSIST_MS    flush interval for committed turns  (default 15000)
+ *   PB_ADMIN_EMAIL / PB_ADMIN_PASSWORD   service (admin) creds used to
+ *                 authenticate node writes; persistence is DISABLED unless
+ *                 these (or PB_SERVICE_TOKEN) are set — nodes.createRule
+ *                 requires auth, so anonymous writes would 403.
+ *   PB_SERVICE_TOKEN  alternative: a pre-issued PB auth token (skips login).
  *
- * Run:  PORT=8090 PB_URL=https://pb.example.com node server.js
+ * Run:  PORT=8090 PB_URL=https://pb.example.com \
+ *       PB_ADMIN_EMAIL=admin@example.com PB_ADMIN_PASSWORD=secret node server.js
  */
 
 import { WebSocketServer } from 'ws';
@@ -33,6 +39,13 @@ const TURN_SECONDS = Number(process.env.TURN_SECONDS || 90);
 const TURN_MS = TURN_SECONDS * 1000;
 const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 30000);
 const PERSIST_MS = Number(process.env.PERSIST_MS || 15000);
+const PB_ADMIN_EMAIL = process.env.PB_ADMIN_EMAIL || '';
+const PB_ADMIN_PASSWORD = process.env.PB_ADMIN_PASSWORD || '';
+const PB_SERVICE_TOKEN = process.env.PB_SERVICE_TOKEN || '';
+const MAX_PERSIST_ATTEMPTS = 5; // drop a row after this many failed flushes
+let pbToken = PB_SERVICE_TOKEN; // current service auth token (refreshed on 401)
+const persistEnabled = () =>
+  !!PB_URL && (!!PB_SERVICE_TOKEN || (!!PB_ADMIN_EMAIL && !!PB_ADMIN_PASSWORD));
 
 // Limits — keep memory bounded and reject abusive payloads.
 const MAX_BUFFER_CHARS = 20000; // live buffer cap per turn
@@ -409,41 +422,83 @@ function removeSocketFromSession(session, ws) {
 // means: on failure we log and re-queue the row for the next flush, but never
 // block the relay or drop a turn from in-memory history.
 
-async function persistRow(row, sessionId, storyId) {
-  const body = {
-    story: storyId,
-    author: row.who,
-    text: row.text,
-    // `ts` stored as ISO for readability; adapt field names to your schema.
-    created_ts: new Date(row.ts).toISOString(),
-    session: sessionId,
-  };
-  const res = await fetch(`${PB_URL}/api/collections/nodes/records`, {
+// Authenticate the persistence service against PocketBase. Tries the v0.22
+// admins endpoint first, then the v0.23 _superusers collection. Returns a token
+// ('' if it could not authenticate). A pre-issued PB_SERVICE_TOKEN short-circuits.
+async function pbAuth() {
+  if (PB_SERVICE_TOKEN) { pbToken = PB_SERVICE_TOKEN; return pbToken; }
+  if (!PB_ADMIN_EMAIL || !PB_ADMIN_PASSWORD) return '';
+  const paths = ['/api/admins/auth-with-password', '/api/collections/_superusers/auth-with-password'];
+  for (const path of paths) {
+    try {
+      const res = await fetch(`${PB_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: PB_ADMIN_EMAIL, password: PB_ADMIN_PASSWORD }),
+      });
+      if (res.ok) {
+        const j = await res.json().catch(() => null);
+        if (j && j.token) { pbToken = j.token; return pbToken; }
+      }
+    } catch (_) { /* try next */ }
+  }
+  return '';
+}
+
+const escapeHtml = (s) =>
+  String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+
+function pbCreateNode(body) {
+  return fetch(`${PB_URL}/api/collections/nodes/records`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(pbToken ? { Authorization: pbToken } : {}) },
     body: JSON.stringify(body),
-    // NOTE: if your `nodes` collection requires auth to create, attach a
-    // service token here, e.g. headers.Authorization = process.env.PB_SERVICE_TOKEN
   });
+}
+
+// Persist one committed turn as a real `nodes` record, using ONLY fields that
+// exist in the schema (story, parent, title, author, author_handle, canon,
+// html). Turns are chained (parent = previous turn) and never canon. On 401 we
+// re-authenticate once and retry.
+async function persistRow(row, session) {
+  const body = {
+    story: session.storyId,
+    parent: session.lastPersistedNodeId || '',
+    title: 'Эстафета · ход',
+    author: row.who,          // PB user id of the writer
+    author_handle: row.who,   // display fallback (server has no handle lookup)
+    canon: false,             // room turns never auto-enter canon
+    html: `<p>${escapeHtml(row.text)}</p>`,
+  };
+  let res = await pbCreateNode(body);
+  if (res.status === 401) { await pbAuth(); res = await pbCreateNode(body); }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     throw new Error(`PB ${res.status}: ${detail.slice(0, 200)}`);
   }
+  const created = await res.json().catch(() => null);
+  if (created && created.id) session.lastPersistedNodeId = created.id;
 }
 
 async function flushSession(session) {
-  if (!PB_URL) return; // persistence disabled
+  if (!persistEnabled()) return; // persistence disabled (no PB_URL / no creds)
   if (session.pendingPersist.length === 0) return;
 
-  // Take the current batch; re-queue failures so nothing is silently lost.
+  // Take the current batch; re-queue transient failures, DROP rows that have
+  // exhausted their attempts so a permanent error can't requeue forever.
   const batch = session.pendingPersist.splice(0, session.pendingPersist.length);
   const failed = [];
   for (const row of batch) {
     try {
-      await persistRow(row, session.id, session.storyId);
+      await persistRow(row, session);
     } catch (err) {
-      warn(`persist failed (session ${session.id}):`, err?.message || err);
-      failed.push(row);
+      row._attempts = (row._attempts || 0) + 1;
+      if (row._attempts >= MAX_PERSIST_ATTEMPTS) {
+        warn(`dropping turn after ${row._attempts} attempts (session ${session.id}): ${err?.message || err}`);
+      } else {
+        warn(`persist failed (session ${session.id}, attempt ${row._attempts}):`, err?.message || err);
+        failed.push(row);
+      }
     }
   }
   if (failed.length) {
@@ -456,10 +511,15 @@ async function flushSession(session) {
 
 let persistTimer = null;
 function startPersistLoop() {
-  if (!PB_URL) {
-    log('PB_URL not set — persistence disabled (in-memory history only).');
+  if (!persistEnabled()) {
+    log(PB_URL
+      ? 'PB_URL set but no service creds (PB_ADMIN_EMAIL/PASSWORD or PB_SERVICE_TOKEN) — persistence disabled.'
+      : 'PB_URL not set — persistence disabled (in-memory history only).');
     return;
   }
+  pbAuth().then((t) =>
+    log(t ? 'persist: service authenticated.' : 'persist: WARNING could not authenticate yet; will retry on flush.')
+  );
   persistTimer = setInterval(() => {
     for (const session of sessions.values()) {
       flushSession(session).catch((err) => warn('flush loop error:', err?.message || err));
