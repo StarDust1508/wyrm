@@ -2918,7 +2918,7 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
 
 /* account chip + menu in the nav */
 /* колокольчик уведомлений */
-function NotificationsMenu({ user }) {
+function NotificationsMenu({ user, go }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const ref = useRef(null);
@@ -2933,11 +2933,14 @@ function NotificationsMenu({ user }) {
   const unread = items.filter(n => !n.read).length;
   const readAll = async () => { await store.markAllNotificationsRead(); load(); };
   const kindIcon = { like: 'flame', comment: 'users', repost: 'fork', canon: 'star', room_turn: 'quill' };
+  // deep-link by kind — surfaces the notification's source screen
+  const DEST = { canon: ['reader', { story: 'ashes' }], like: ['feed'], comment: ['feed'], repost: ['feed'], room_turn: ['room'] };
+  const openItem = (n) => { setOpen(false); const d = DEST[n.kind] || ['feed']; if (go) go(d[0], d[1]); };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button className="icon-btn" title="Уведомления" onClick={() => { setOpen(o => !o); }} style={{ position: 'relative' }}>
         <Icon name="bell" size={17} />
-        {unread > 0 && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 9, background: 'var(--accent)', color: 'var(--accent-ink)', fontSize: 9, fontFamily: 'var(--mono)', display: 'grid', placeItems: 'center' }}>{unread}</span>}
+        {unread > 0 && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 0, background: 'var(--ink-max)', color: 'var(--accent-ink)', fontSize: 9, fontFamily: 'var(--mono)', display: 'grid', placeItems: 'center' }}>{unread}</span>}
       </button>
       <div className="studio-pop" data-open={open} style={{ width: 300, right: 0, left: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 12px 8px' }}>
@@ -2947,14 +2950,14 @@ function NotificationsMenu({ user }) {
         {items.length === 0
           ? <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', padding: '6px 12px 10px' }}>Пока пусто.</div>
           : items.slice(0, 12).map(n => (
-              <div key={n.id} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '9px 12px', borderTop: 'var(--rule-style)', opacity: n.read ? .55 : 1 }}>
-                <span style={{ color: 'var(--accent)', marginTop: 2 }}><Icon name={kindIcon[n.kind] || 'bolt'} size={13} /></span>
+              <button key={n.id} className="noti-item" onClick={() => openItem(n)} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '9px 12px', borderTop: 'var(--rule-style)', opacity: n.read ? .55 : 1, width: '100%', textAlign: 'left' }}>
+                <span style={{ color: 'var(--ink)', marginTop: 2 }}><Icon name={kindIcon[n.kind] || 'bolt'} size={13} /></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: '.8rem', lineHeight: 1.35 }}>{n.text}</div>
                   <div className="mono" style={{ fontSize: '.46rem', color: 'var(--ink-3)' }}>{timeAgo(n.ts)}</div>
                 </div>
-                {!n.read && <span style={{ width: 6, height: 6, borderRadius: 9, background: 'var(--accent)', flex: '0 0 auto', marginTop: 6 }} />}
-              </div>
+                {!n.read && <span style={{ width: 6, height: 6, borderRadius: 0, background: 'var(--ink-max)', flex: '0 0 auto', marginTop: 6 }} />}
+              </button>
             ))}
       </div>
     </div>
@@ -3923,7 +3926,7 @@ function App() {
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {user && <NotificationsMenu user={user} />}
+            {user && <NotificationsMenu user={user} go={go} />}
             <button className="icon-btn nav-burger" title="Меню" aria-label="Меню" aria-expanded={menuOpen} onClick={() => setMenuOpen(o => !o)}>
               <Icon name={menuOpen ? 'x' : 'menu'} size={20} />
             </button>
