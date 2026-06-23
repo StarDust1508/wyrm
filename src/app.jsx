@@ -753,6 +753,33 @@ function Gate({ go }) {
   const [welcome, setWelcome] = useState(false);
   const overlayRef = useRef(null);
   const wordRef = useRef(null);
+  const rootRef = useRef(null);
+
+  // Pointer parallax: курсор сдвигает слои (--gx/--gy) для ощущения глубины.
+  // Плавно затухает к центру; отключается при prefers-reduced-motion.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    let raf = 0, tx = 0, ty = 0, cx = 0, cy = 0;
+    const MAX = 14;
+    const onMove = (e) => {
+      const r = el.getBoundingClientRect();
+      tx = ((e.clientX - r.left) / r.width - 0.5) * 2 * MAX;
+      ty = ((e.clientY - r.top) / r.height - 0.5) * 2 * MAX;
+    };
+    const onLeave = () => { tx = 0; ty = 0; };
+    const tick = () => {
+      cx += (tx - cx) * 0.06; cy += (ty - cy) * 0.06;
+      el.style.setProperty('--gx', cx.toFixed(2) + 'px');
+      el.style.setProperty('--gy', cy.toFixed(2) + 'px');
+      raf = requestAnimationFrame(tick);
+    };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerleave', onLeave);
+    raf = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerleave', onLeave); };
+  }, []);
 
   // Welcome overlay: Escape closes it, focus is trapped inside while open,
   // and focus returns to the wordmark on dismiss. (Accessibility per spec.)
@@ -781,7 +808,7 @@ function Gate({ go }) {
   }, [welcome]);
 
   return (
-    <div className="gate">
+    <div className="gate" ref={rootRef}>
       {/* film-grain noise overlay */}
       <div className="gate-grain" aria-hidden="true" />
       {/* hairline guide geometry */}
@@ -3333,7 +3360,7 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
 }
 
 /* ---------------- ЛЕНТА ---------------- */
-function Feed({ go, user }) {
+function Feed({ go, user, embedded }) {
   const ref = useReveal();
   const { communities } = useCommunities();
   const comName = (id) => (communities.find(c => c.id === id) || {}).name;
@@ -3348,11 +3375,13 @@ function Feed({ go, user }) {
   const kinds = [['all', 'Всё'], ['following', 'Подписки'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
 
   return (
-    <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
-      <div className="reveal" style={{ marginBottom: 26 }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
-        <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Лента</h1>
-      </div>
+    <div className="view wrap" ref={ref} style={{ padding: embedded ? '6px 0 100px' : 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
+      {!embedded && (
+        <div className="reveal" style={{ marginBottom: 26 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
+          <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Лента</h1>
+        </div>
+      )}
 
       <FeedComposer user={user} onPost={addPost} go={go} />
 
@@ -3432,20 +3461,27 @@ function CommunityCard({ c, joined, onToggle, onOpen }) {
 }
 
 /* ---------------- СООБЩЕСТВА (сетка + создание) ---------------- */
-function Communities({ go, user }) {
+function Communities({ go, user, embedded }) {
   const ref = useReveal();
   const { communities, joined, create, toggleJoin } = useCommunities();
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
-      <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 30 }}>
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Кружки авторов · {communities.length}</div>
-          <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Сообщества</h1>
+    <div className="view wrap" ref={ref} style={{ padding: embedded ? '6px 0 100px' : 'clamp(34px,6vh,64px) 0 100px' }}>
+      {embedded ? (
+        <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 24 }}>
+          <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)' }}>Кружки авторов · {communities.length}</span>
+          <button className="btn btn-primary btn-sm" onClick={() => setCreating(true)}><Icon name="plus" size={14} />Создать сообщество</button>
         </div>
-        <button className="btn btn-primary" onClick={() => setCreating(true)}><Icon name="plus" size={16} />Создать сообщество</button>
-      </div>
+      ) : (
+        <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 30 }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Кружки авторов · {communities.length}</div>
+            <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Сообщества</h1>
+          </div>
+          <button className="btn btn-primary" onClick={() => setCreating(true)}><Icon name="plus" size={16} />Создать сообщество</button>
+        </div>
+      )}
 
       {creating && <CommunityCreate user={user} onClose={() => setCreating(false)}
         onCreate={async (c) => { try { const made = await create(c, c.owner); setCreating(false); go('community', { communityId: made.id }); } catch (e) { wyrmErr(e, 'Не удалось создать сообщество.'); } }} go={go} />}
@@ -3725,7 +3761,29 @@ function Profile({ go, user }) {
   );
 }
 
-Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate, GenreWheel, RichEditor, htmlToText, Profile });
+/* ---------------- СОЦИАЛЬНЫЙ ХАБ — Лента + Сообщества на одной странице ---------------- */
+function Social({ go, user, initial }) {
+  const ref = useReveal();
+  const [tab, setTab] = useState(initial === 'communities' ? 'communities' : 'feed');
+  return (
+    <div className="view" ref={ref}>
+      <div className="wrap" style={{ padding: 'clamp(34px,6vh,64px) 0 0' }}>
+        <div className="reveal" style={{ marginBottom: 18 }}>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
+          <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Сообщество</h1>
+        </div>
+        <div className="reveal" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '12px 0' }}>
+          {[['feed', 'Лента'], ['communities', 'Сообщества']].map(([k, l]) => (
+            <button key={k} className="nav-link" data-active={tab === k} onClick={() => setTab(k)} style={{ fontSize: '.92rem' }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      {tab === 'feed' ? <Feed go={go} user={user} embedded /> : <Communities go={go} user={user} embedded />}
+    </div>
+  );
+}
+
+Object.assign(window, { Feed, Communities, Social, CommunityDetail, CommunityCreate, GenreWheel, RichEditor, htmlToText, Profile });
 
 /* ╔══ 14 · App shell ══╗ */
 /* ============================================================
@@ -3796,7 +3854,7 @@ function App() {
 
   const go = (r, payload) => { if (payload) setCtx(c => ({ ...c, ...payload })); setRoute(r); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
-  const NAV = [['home', 'Главная'], ['feed', 'Лента'], ['catalog', 'Каталог'], ['communities', 'Сообщества'], ['reader', 'Древо']];
+  const NAV = [['home', 'Главная'], ['feed', 'Сообщество'], ['catalog', 'Каталог'], ['reader', 'Древо']];
   const STUDIO = [
     ['merge', '01 · Слияние', 'branch'],
     ['lore', '02 · Кодекс мира', 'eye'],
@@ -3805,69 +3863,59 @@ function App() {
     ['cut', '05 · Сборка читателя', 'fork'],
   ];
   const studioRoutes = STUDIO.map(s => s[0]);
+  const studioRoute = route === 'compose' || studioRoutes.includes(route); // «верстак»/студия: ярлык «студия» в шапке
   const enabledPlugins = Object.values(plugins).filter(Boolean).length;
 
   return (
     <React.Fragment>
       <div className="atmos" style={{ opacity: atmos ? 1 : 0 }} />
 
-      {route !== 'landing' && (<React.Fragment>
-      <header className="nav wrap" style={{ width: 'min(100% - 48px, var(--maxw))' }}>
-        <div className="brand" onClick={() => go('landing')}>
-          <span className="logo"><span className="w">W</span>YRM</span>
-          <span className="tld">сотвори историю вместе</span>
-        </div>
-        <button className="icon-btn nav-burger" title="Меню" aria-label="Меню" onClick={() => setMenuOpen(o => !o)}>
-          <Icon name={menuOpen ? 'x' : 'menu'} size={20} />
-        </button>
-        <nav className="nav-links">
-          {NAV.map(([r, l]) => <button key={r} className="nav-link" data-active={route === r} onClick={() => go(r, r === 'reader' ? { story: 'ashes', node: null } : undefined)}>{l}</button>)}
-          <StudioMenu items={STUDIO} route={route} go={go} active={studioRoutes.includes(route)} />
-          <button className="nav-link" data-active={route === 'compose'} onClick={() => go('compose')}>Писать</button>
-          <span style={{ width: 1, height: 22, background: 'var(--line)', margin: '0 6px' }} />
-          <button className="icon-btn" title="Расширения" onClick={() => go('plugins')} style={{ position: 'relative' }}>
-            <Icon name="blocks" size={17} />
-            {enabledPlugins > 0 && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 9, background: 'var(--accent)', color: 'var(--accent-ink)', fontSize: 9, fontFamily: 'var(--mono)', display: 'grid', placeItems: 'center' }}>{enabledPlugins}</span>}
-          </button>
-          <button className="icon-btn" title="Сменить мир" onClick={() => setTheme(t => t === 'night' ? 'manuscript' : 'night')}>
-            <Icon name={theme === 'night' ? 'moon' : 'sun'} size={17} />
-          </button>
-          <button className="icon-btn" title="Настройки" onClick={() => setSettingsOpen(true)}><Icon name="sliders" size={17} /></button>
-          {user && <NotificationsMenu user={user} />}
-          {user
-            ? <AccountMenu user={user} onLogout={async () => { await store.signOut(); setUser(null); }} go={go} />
-            : <button className="btn btn-primary btn-sm" onClick={() => openAuth('login')}>Войти</button>}
-        </nav>
-      </header>
-
-      {/* мобильное меню */}
-      <div className="mobile-menu" data-open={menuOpen} onClick={() => setMenuOpen(false)}>
-        <div className="mobile-menu-panel" onClick={e => e.stopPropagation()}>
-          {[...NAV, ['compose', 'Писать']].map(([r, l]) => (
-            <button key={r} className="mobile-link" data-active={route === r}
-              onClick={() => { go(r, r === 'reader' ? { story: 'ashes', node: null } : undefined); setMenuOpen(false); }}>{l}</button>
-          ))}
-          <div className="mobile-menu-label">Студия</div>
-          {STUDIO.map(([r, l, ic]) => (
-            <button key={r} className="mobile-link" data-active={route === r} onClick={() => { go(r); setMenuOpen(false); }}>
-              <Icon name={ic} size={15} />{l}
+      {/* Минимальная шапка: логотип (→ ворота) + бургер. Никакой горизонтальной
+          навигации — вся навигация в выезжающем меню (на любом размере экрана). */}
+      {route !== 'landing' && (
+        <header className="nav wrap topbar" style={{ width: 'min(100% - 48px, var(--maxw))' }}>
+          <div className="brand" onClick={() => go('landing')}>
+            <span className="logo"><span className="w">W</span>YRM</span>
+            {studioRoute && <span className="tld">студия</span>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {user && <NotificationsMenu user={user} />}
+            <button className="icon-btn nav-burger" title="Меню" aria-label="Меню" aria-expanded={menuOpen} onClick={() => setMenuOpen(o => !o)}>
+              <Icon name={menuOpen ? 'x' : 'menu'} size={20} />
             </button>
-          ))}
-          <div className="mobile-menu-label">Ещё</div>
-          <button className="mobile-link" onClick={() => { go('plugins'); setMenuOpen(false); }}><Icon name="blocks" size={15} />Расширения{enabledPlugins > 0 ? ' · ' + enabledPlugins : ''}</button>
-          <button className="mobile-link" onClick={() => { setTheme(t => t === 'night' ? 'manuscript' : 'night'); }}><Icon name={theme === 'night' ? 'moon' : 'sun'} size={15} />Сменить мир</button>
-          <button className="mobile-link" onClick={() => { setSettingsOpen(true); setMenuOpen(false); }}><Icon name="sliders" size={15} />Настройки</button>
-          {user
-            ? <React.Fragment>
-                <div className="mobile-menu-label">@{user.handle}</div>
-                <button className="mobile-link" onClick={() => { go('profile'); setMenuOpen(false); }}><Icon name="users" size={15} />Профиль</button>
-                <button className="mobile-link" onClick={() => { go('compose'); setMenuOpen(false); }}><Icon name="quill" size={15} />Мои ветки</button>
-                <button className="mobile-link" onClick={async () => { await store.signOut(); setUser(null); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Выйти</button>
-              </React.Fragment>
-            : <button className="btn btn-primary" style={{ margin: '12px 0 4px', justifyContent: 'center' }} onClick={() => { openAuth('login'); setMenuOpen(false); }}>Войти</button>}
+          </div>
+        </header>
+      )}
+
+      {/* Единое выезжающее меню — единственная навигация платформы */}
+      {route !== 'landing' && (
+        <div className="mobile-menu" data-open={menuOpen} onClick={() => setMenuOpen(false)}>
+          <div className="mobile-menu-panel" onClick={e => e.stopPropagation()}>
+            <button className="mobile-link" onClick={() => { go('landing'); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Ворота WYRM</button>
+            {NAV.map(([r, l]) => (
+              <button key={r} className="mobile-link" data-active={route === r}
+                onClick={() => { go(r, r === 'reader' ? { story: 'ashes', node: null } : undefined); setMenuOpen(false); }}>{l}</button>
+            ))}
+            <div className="mobile-menu-label">Студия</div>
+            {[['compose', 'Писать', 'quill'], ...STUDIO].map(([r, l, ic]) => (
+              <button key={r} className="mobile-link" data-active={route === r} onClick={() => { go(r); setMenuOpen(false); }}>
+                <Icon name={ic} size={15} />{l.replace(/^\d+\s·\s/, '')}
+              </button>
+            ))}
+            <div className="mobile-menu-label">Ещё</div>
+            <button className="mobile-link" onClick={() => { go('plugins'); setMenuOpen(false); }}><Icon name="blocks" size={15} />Расширения{enabledPlugins > 0 ? ' · ' + enabledPlugins : ''}</button>
+            <button className="mobile-link" onClick={() => { setTheme(t => t === 'night' ? 'manuscript' : 'night'); }}><Icon name={theme === 'night' ? 'moon' : 'sun'} size={15} />Сменить мир</button>
+            <button className="mobile-link" onClick={() => { setSettingsOpen(true); setMenuOpen(false); }}><Icon name="sliders" size={15} />Настройки</button>
+            {user
+              ? <React.Fragment>
+                  <div className="mobile-menu-label">@{user.handle}</div>
+                  <button className="mobile-link" onClick={() => { go('profile'); setMenuOpen(false); }}><Icon name="users" size={15} />Профиль</button>
+                  <button className="mobile-link" onClick={async () => { await store.signOut(); setUser(null); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Выйти</button>
+                </React.Fragment>
+              : <button className="btn btn-primary" style={{ margin: '12px 0 4px', justifyContent: 'center' }} onClick={() => { openAuth('login'); setMenuOpen(false); }}>Войти</button>}
+          </div>
         </div>
-      </div>
-      </React.Fragment>)}
+      )}
 
       <AuthModal open={authOpen} mode={authMode} setMode={setAuthMode} onClose={() => setAuthOpen(false)} onAuth={doAuth} />
 
@@ -3885,13 +3933,13 @@ function App() {
         {route === 'room' && <WritersRoom go={go} />}
         {route === 'cut' && <ReadersCut go={go} />}
         {route === 'plugins' && <PluginsScreen state={plugins} toggle={togglePlugin} customs={customs} addCustom={addCustom} go={go} />}
-        {route === 'feed' && <Feed go={go} user={user} />}
-        {route === 'communities' && <Communities go={go} user={user} />}
+        {route === 'feed' && <Social go={go} user={user} initial="feed" />}
+        {route === 'communities' && <Social go={go} user={user} initial="communities" />}
         {route === 'community' && <CommunityDetail go={go} ctx={ctx} user={user} />}
         {route === 'profile' && <Profile go={go} user={user} />}
       </main>
 
-      {route !== 'landing' && (
+      {route !== 'landing' && !studioRoute && (
       <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18, position: 'relative', zIndex: 1 }}>
         <div className="brand"><span className="logo" style={{ fontSize: '1.2rem' }}><span className="w">W</span>YRM</span></div>
         <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', maxWidth: '36ch' }}>Площадка коллективного повествования. Каждая история живёт, пока её пишут.</p>

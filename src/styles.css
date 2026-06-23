@@ -1133,8 +1133,22 @@ body.zen footer{ opacity:.4; }
 .rich-read h3{ font-family:var(--display); font-size:1.2rem; font-weight:700; margin:.6em 0 .3em; }
 
 /* ---------- responsive navigation ---------- */
-.nav-burger{ display:none; }
-.mobile-menu{ display:none; }
+/* бургер — единственная навигация на ВСЕХ размерах; nav-links больше не используется */
+.nav-burger{ display:inline-flex; }
+.nav-links{ display:none; }
+.mobile-menu{
+  position:fixed; inset:0; z-index:55;
+  background:oklch(0 0 0 / .45); backdrop-filter:blur(2px);
+  opacity:0; pointer-events:none; transition:opacity .3s;
+}
+.mobile-menu[data-open="true"]{ opacity:1; pointer-events:auto; }
+.mobile-menu-panel{
+  position:absolute; top:0; right:0; width:min(320px,88vw); height:100%; overflow-y:auto;
+  background:var(--bg-2); border-left:var(--rule-style); box-shadow:var(--shadow-card);
+  padding:76px 18px 28px; display:flex; flex-direction:column; gap:2px;
+  transform:translateX(102%); transition:transform .35s var(--ease);
+}
+.mobile-menu[data-open="true"] .mobile-menu-panel{ transform:none; }
 .mobile-link{
   display:flex; align-items:center; gap:10px; width:100%; text-align:left;
   padding:11px 12px; border-radius:5px; font-family:var(--display);
@@ -1147,23 +1161,6 @@ body.zen footer{ opacity:.4; }
   color:var(--ink-3); padding:14px 12px 6px; border-top:var(--rule-style); margin-top:8px;
 }
 
-@media (max-width: 820px){
-  .nav-links{ display:none; }
-  .nav-burger{ display:inline-flex; }
-  .mobile-menu{
-    display:block; position:fixed; inset:0; z-index:55;
-    background:oklch(0 0 0 / .45); backdrop-filter:blur(2px);
-    opacity:0; pointer-events:none; transition:opacity .3s;
-  }
-  .mobile-menu[data-open="true"]{ opacity:1; pointer-events:auto; }
-  .mobile-menu-panel{
-    position:absolute; top:0; right:0; width:min(300px,86vw); height:100%; overflow-y:auto;
-    background:var(--bg-2); border-left:var(--rule-style); box-shadow:var(--shadow-card);
-    padding:76px 18px 28px; display:flex; flex-direction:column; gap:2px;
-    transform:translateX(102%); transition:transform .35s var(--ease);
-  }
-  .mobile-menu[data-open="true"] .mobile-menu-panel{ transform:none; }
-}
 
 /* ============================================================
    DESIGN UPGRADE — Malvah-inspired polish (appended; overrides above)
@@ -1350,26 +1347,38 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* hairline guide circle — perfectly centered */
+/* hairline guide circle — centered, slow breathe + pointer parallax (depth) */
 .gate-circle{
   position:absolute; top:50%; left:50%; z-index:1;
   width:min(80vh,1000px); aspect-ratio:1; border-radius:50%;
-  border:1px solid var(--g-line);
-  transform:translate(-50%,-50%); pointer-events:none;
+  border:1px solid var(--g-line); pointer-events:none;
+  transform:translate(calc(-50% + var(--gx,0px) * .5), calc(-50% + var(--gy,0px) * .5));
+  animation:gate-breathe 18s ease-in-out infinite;       /* `scale` composes with transform */
 }
+@keyframes gate-breathe{ 0%,100%{ scale:1; opacity:.95 } 50%{ scale:1.045; opacity:.55 } }
+/* a second, larger ring drifting opposite for parallax depth */
+.gate-circle::after{
+  content:""; position:absolute; inset:-9%; border-radius:50%; border:1px solid var(--g-line);
+  opacity:.5; animation:gate-breathe2 22s ease-in-out infinite;
+}
+@keyframes gate-breathe2{ 0%,100%{ scale:1.04; opacity:.35 } 50%{ scale:1; opacity:.6 } }
+
 /* full-width centerline at 50% height */
 .gate-centerline{
   position:absolute; top:50%; left:0; right:0; height:1px; z-index:1;
-  background:var(--g-line); transform:translateY(-.5px); pointer-events:none;
+  background:var(--g-line); pointer-events:none;
+  transform:translateY(calc(-.5px + var(--gy,0px) * .25));
 }
 
-/* registration / crosshair marks — vertically centered on the centerline */
+/* registration / crosshair marks — on the centerline, slow rotate + parallax */
 .gate-reg{
-  position:absolute; top:50%; z-index:2; color:var(--g-ink); opacity:.55;
-  transform:translateY(-50%); pointer-events:none;
+  position:absolute; top:50%; z-index:2; color:var(--g-ink); opacity:.55; pointer-events:none;
+  transform:translateY(calc(-50% + var(--gy,0px) * .6));
+  animation:gate-spin 34s linear infinite;               /* `rotate` composes with transform */
 }
+@keyframes gate-spin{ from{ rotate:0deg } to{ rotate:360deg } }
 .gate-reg-left{ left:clamp(14px,3vw,40px); }
-.gate-reg-right{ right:clamp(14px,3vw,40px); }
+.gate-reg-right{ right:clamp(14px,3vw,40px); animation-direction:reverse; }
 
 /* ---------- corners ---------- */
 .gate-corner{
@@ -1413,24 +1422,30 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 
 /* ---------- center ---------- */
 .gate-center{
-  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:2;
+  position:absolute; top:50%; left:50%; z-index:2;
   display:flex; flex-direction:column; align-items:center; text-align:center;
   width:100%; padding:0 24px; pointer-events:none;
+  /* pointer parallax (full strength) */
+  transform:translate(calc(-50% + var(--gx,0px)), calc(-50% + var(--gy,0px)));
 }
 .gate-eyebrow{
   font-size:clamp(9px,1vw,11px); font-weight:500; letter-spacing:.24em; text-transform:uppercase;
-  color:var(--g-ink); opacity:.5; margin-bottom:clamp(8px,1.4vh,18px);
+  color:var(--g-ink); opacity:.5; margin-bottom:clamp(10px,1.8vh,24px);
 }
-/* wordmark — two stacked rows, the second mirrored; heavily blurred → focus on hover */
+/* wordmark — two stacked rows + faint mirror; BIG & WIDE, blurred → focus on hover,
+   gently floating (translate property, composes with nothing else here) */
 .gate-word{
   position:relative;
   background:none; border:0; padding:0; margin:0; cursor:pointer; pointer-events:auto;
-  display:flex; flex-direction:column; align-items:center; line-height:.78;
-  font-family:var(--mono); font-weight:700; color:var(--g-ink);
-  font-size:clamp(5rem,22vw,18rem); letter-spacing:-.04em;
+  display:flex; flex-direction:column; align-items:center; line-height:.74;
+  font-family:var(--mono); font-weight:800; color:var(--g-ink);
+  font-size:clamp(6rem,30vw,24rem); letter-spacing:-.03em;
   filter:blur(8px); transition:filter .5s var(--g-ease);
+  animation:gate-float 7.5s ease-in-out infinite;        /* `translate` property */
 }
-.gate-word-line{ display:block; }
+@keyframes gate-float{ 0%,100%{ translate:0 -7px } 50%{ translate:0 7px } }
+/* «шире»: горизонтально растянутые глифы */
+.gate-word-line{ display:block; transform:scaleX(1.14); transform-origin:center; }
 /* reframed mirror signature: a faint vertically-flipped reflection echoed
    beneath the legible "RM" row. Decorative only (aria-hidden) and taken OUT
    of flow (position:absolute) so it never pulls the legible "WY / RM" off the
@@ -1470,16 +1485,23 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .gwelcome-btn:focus-visible{ background:#fff; color:#000; outline:none; }
 .gwelcome-btn:focus-visible{ box-shadow:0 0 0 2px #000, 0 0 0 3px #fff; }
 
-/* respect reduced motion — no focus animation, no overlay fade */
+/* respect reduced motion — kill all gate motion (focus blur, float, spin, breathe, parallax) */
 @media (prefers-reduced-motion: reduce){
-  .gate-word{ filter:blur(8px) !important; transition:none; }
+  .gate-word{ filter:blur(8px) !important; transition:none; animation:none; }
   .gate-word:hover, .gate-word:focus-visible{ filter:blur(8px) !important; }
+  .gate-circle, .gate-circle::after, .gate-reg{ animation:none; }
   .gwelcome{ animation:none; }
   .gate-corner, .gate-corner-label::after, .gate-corner-sub{ transition:none; }
 }
 
-/* tighten margins on very small screens so corners never collide with center */
+/* tighten on small screens so the (now larger) wordmark never collides with corners */
 @media (max-width:560px){
   .gate-corner-sub{ display:none; }
-  .gate-word{ font-size:clamp(4.5rem,30vw,9rem); }
+  .gate-word{ font-size:clamp(4.5rem,32vw,11rem); }
 }
+
+/* ---------- topbar: «не панель», а плавающие логотип + бургер ---------- */
+.topbar{ border-bottom:0; background:transparent; backdrop-filter:none; }
+.topbar .brand{ pointer-events:auto; }
+/* лёгкая подложка под иконками, чтобы бургер читался над любым контентом */
+.topbar .icon-btn{ background:color-mix(in oklab, var(--bg) 70%, transparent); backdrop-filter:blur(8px); }
