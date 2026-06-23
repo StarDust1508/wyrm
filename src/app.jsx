@@ -1024,7 +1024,11 @@ const DESK_PRESETS = [
 function Compose({ go, ctx, setCtx }) {
   const { CHARACTERS, TAGS } = window.WYRM;
   const storyId = ctx.story || 'ashes';
-  const NODES = window.WYRM.nodesFor(storyId);
+  // узлы читаем через store (PB в бою, иначе сид/localStorage), а не из
+  // window.WYRM напрямую — в PB-режиме родитель развилки и навигатор глав
+  // должны приходить из БД. Стартуем с сида, чтобы первый рендер был не пустым.
+  const [NODES, setNODES] = useState(() => window.WYRM.nodesFor(storyId));
+  useEffect(() => { let on = true; store.listNodes(storyId).then(n => { if (on && n && n.length) setNODES(n); }); return () => { on = false; }; }, [storyId]);
   const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
   const parent = byId[ctx.forkFrom] || byId['A1a'] || NODES.find(n => !n.parent) || NODES[0];
   const [title, setTitle] = useState('');
@@ -1176,7 +1180,7 @@ function Compose({ go, ctx, setCtx }) {
     </div>
   );
 
-  const storyNodes = window.WYRM.nodesFor(storyId);
+  const storyNodes = NODES;
   const storyTitle = ((window.WYRM.STORIES || []).find(s => s.id === storyId) || {}).title || parent.title || 'Древо';
   const deskCols = [desk.left && !desk.focus ? '230px' : null, 'minmax(0,1fr)', desk.right && !desk.focus ? '320px' : null].filter(Boolean).join(' ');
   const TOGGLES = [['left', 'Навигатор', 'branch'], ['right', 'Свойства', 'sliders'], ['bottom', 'Заметки', 'quill'], ['focus', 'Фокус', 'eye']];
@@ -1305,15 +1309,6 @@ Object.assign(window, { Reader, Compose });
    WYRM · #1 Narrative Merge — «git для прозы»
    Построчное ревью предложенной правки + слияние ветки в канон.
    ============================================================ */
-
-const MERGE_HUNKS = [
-  { id: 1, type: 'ctx', text: 'Архонт ждал их в зале без окон.' },
-  { id: 2, type: 'del', text: '«Ты привела ко мне бога на поводке, девочка. Назови цену».' },
-  { id: 3, type: 'add', text: '«Ты привела ко мне бога на поводке, дитя пепла. Назови цену», — голос Архонта дрожал, и Кейра впервые увидела за бронёй старика.' },
-  { id: 4, type: 'ctx', text: 'Кейра назвала. Цена была — он сам.' },
-  { id: 5, type: 'conflict', text: 'Вэйл шагнул вперёд и опустил клинок.', them: 'Вэйл остался у дверей — он уже знал, чем кончится этот торг.' },
-  { id: 6, type: 'add', text: 'Где-то под цитаделью Старый Вирм шевельнулся, и камень застонал.' },
-];
 
 function MergeHunk({ h, decision, onDecide }) {
   const palette = {
@@ -1547,17 +1542,21 @@ const KIND_LABEL = { revival: 'Воскрешение', soft: 'Неувязка'
 
 function LoreGraph({ go }) {
   const ref = useReveal();
-  const { CHARACTERS, STORIES } = window.WYRM;
+  const { CHARACTERS } = window.WYRM;
   const [storyId, setStoryId] = useState('ashes');
+  const [stories, setStories] = useState([]);
+  const [nodes, setNodes] = useState([]);
   const [sel, setSel] = useState(null);
   const [ignored, setIgnored] = useState(() => store.getLoreIgnored());
   const [showHidden, setShowHidden] = useState(false);
 
-  // только истории, где у глав отмечены судьбы героев (есть что проверять)
-  const stories = (STORIES || []).filter(s => consistency.charactersIn(window.WYRM.nodesFor(s.id)).length);
-  const storyList = stories.length ? stories : (STORIES || []);
+  // истории и узлы читаем через store (PocketBase в бою, иначе демо-данные),
+  // а НЕ из window.WYRM напрямую — иначе в PB-режиме граф анализировал бы
+  // встроенный сид вместо реального сервера.
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on) setStories(s || []); }); return () => { on = false; }; }, []);
+  useEffect(() => { let on = true; store.listNodes(storyId).then(n => { if (on) setNodes(n || []); }); return () => { on = false; }; }, [storyId]);
+  const storyList = stories;
 
-  const nodes = window.WYRM.nodesFor(storyId);
   const overlay = store.voteOverlay();
   const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
   const charIds = consistency.charactersIn(nodes);
@@ -1586,7 +1585,7 @@ function LoreGraph({ go }) {
   const doIgnore = (id) => { store.ignoreLoreIssue(id); setIgnored(store.getLoreIgnored()); };
   const doUnignore = (id) => { store.unignoreLoreIssue(id); setIgnored(store.getLoreIgnored()); };
   const goFix = (iss) => go('reader', { story: storyId, node: iss.toId });
-  const curStory = (STORIES || []).find(s => s.id === storyId) || {};
+  const curStory = stories.find(s => s.id === storyId) || {};
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>

@@ -37,12 +37,36 @@ export function diffSentences(targetText, sourceText) {
   }
   while (i < m) out.push({ type: 'del', text: A[i++] });
   while (j < n) out.push({ type: 'add', text: B[j++] });
+  return coalesceConflicts(out);
+}
+
+// Соседний прогон удалений, за которым сразу идёт прогон добавлений, — это
+// переписанный фрагмент, т.е. КОНФЛИКТ: ревьюер выбирает линию (канон vs ветвь),
+// а не принимает/отклоняет по отдельности. Склеиваем их в один hunk
+//   { type:'conflict', text: <текущий канон>, them: <предложение ветви> }.
+// Чистые удаления и чистые добавления остаются как есть.
+function coalesceConflicts(hunks) {
+  const out = [];
+  let i = 0;
+  while (i < hunks.length) {
+    if (hunks[i].type === 'del') {
+      const dels = [];
+      while (i < hunks.length && hunks[i].type === 'del') { dels.push(hunks[i].text); i++; }
+      const adds = [];
+      while (i < hunks.length && hunks[i].type === 'add') { adds.push(hunks[i].text); i++; }
+      if (adds.length) out.push({ type: 'conflict', text: dels.join(' '), them: adds.join(' ') });
+      else dels.forEach(t => out.push({ type: 'del', text: t }));
+    } else {
+      out.push(hunks[i]); i++;
+    }
+  }
   return out;
 }
 
 // Собрать итоговый текст слияния по решениям.
 // decided[id]: 'reject' | undefined(=принято). add принят → включаем;
 // del принят → применяем удаление (опускаем); del отклонён → оставляем.
+// conflict: 'them' → берём текст ветви, иначе оставляем текущий канон (text).
 export function applyMerge(hunks, decided) {
   const keep = [];
   hunks.forEach((h, id) => {
@@ -50,6 +74,7 @@ export function applyMerge(hunks, decided) {
     if (h.type === 'ctx') keep.push(h.text);
     else if (h.type === 'add') { if (!rejected) keep.push(h.text); }
     else if (h.type === 'del') { if (rejected) keep.push(h.text); }
+    else if (h.type === 'conflict') { keep.push(decided[id] === 'them' ? h.them : h.text); }
   });
   return keep.join(' ');
 }

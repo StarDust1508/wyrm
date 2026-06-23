@@ -351,7 +351,9 @@ export async function stakeNode(nodeId, points) {
   if (enabled) {
     const pb = await pbClient(); const me = authRecord(pb);
     if (!me) throw new Error('Нужно войти');
-    try { await pb.collection('votes').create({ node: nodeId, user: me.id, weight: points }); } catch (e) {}
+    // не глотаем ошибку: сервер может отклонить (напр. ставка за свой узел) —
+    // вызывающий должен узнать о провале, а не получить ложный успех.
+    await pb.collection('votes').create({ node: nodeId, user: me.id, weight: points });
     return points;
   }
   const st = getStakes(); st[nodeId] = (st[nodeId] || 0) + points; save('wyrm.stakes', st);

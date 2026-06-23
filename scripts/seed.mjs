@@ -41,6 +41,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import PocketBase from 'pocketbase';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -174,8 +175,11 @@ async function ensureAuthor(pb, handle) {
   const existing = await findOne(pb, 'users', 'handle = {:h}', { h });
   if (existing) return existing;
   const email = `${h.replace(/[^a-z0-9]+/g, '.')}@seed.wyrm.local`;
-  // A reasonably strong, deterministic-but-not-guessable seed password.
-  const password = `seed!${h}!Wyrm2026`;
+  // Placeholder author accounts exist only to satisfy `author` relations —
+  // nobody logs into them. Use a RANDOM, unknowable password so the seed can
+  // never create a guessable account in production. Override with
+  // SEED_AUTHOR_PASSWORD only if you deliberately need to sign in as a seed author.
+  const password = process.env.SEED_AUTHOR_PASSWORD || `Wyrm-${randomUUID()}-${randomUUID()}`;
   try {
     const rec = await pb.collection('users').create({
       email,

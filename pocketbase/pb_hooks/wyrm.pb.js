@@ -54,6 +54,19 @@ function logErr(where, err) {
   }
 }
 
+// True when the request is made by a superuser/admin (Admin UI or admin API).
+// Such callers are allowed to set otherwise server-managed fields; ordinary
+// authenticated users are not. Used to field-protect role/reputation/canon/…
+// (PocketBase access rules are row-level and cannot protect individual fields).
+function isAdminRequest(e) {
+  try {
+    const info = $apis.requestInfo(e.httpContext);
+    return !!(info && info.admin);
+  } catch (_) {
+    return false;
+  }
+}
+
 // Resolve which field on a vote record points at the node.
 function voteNodeField(voteRecord) {
   for (let i = 0; i < VOTE_NODE_FIELDS.length; i++) {
@@ -75,24 +88,34 @@ function clamp01(x) {
   return x;
 }
 
-// Count vote records that reference a given node id, trying each candidate
-// link field. Uses $dbx placeholder binding (NOT string concat) to avoid
-// any injection and to satisfy the v0.22 filter API.
-function countVotesForNode(dao, nodeId) {
+// Sum the WEIGHT of vote records that reference a given node id, trying each
+// candidate link field. A plain vote is weight 1; a stake of recognition
+// points (stakeNode) is weight = points (TZ: «ставка = усиленный голос»).
+// Missing/zero weight falls back to 1 so a normal vote always counts.
+// Uses $dbx placeholder binding (NOT string concat) to avoid injection and
+// to satisfy the v0.22 filter API.
+function sumVoteWeightForNode(dao, nodeId) {
   for (let i = 0; i < VOTE_NODE_FIELDS.length; i++) {
     const field = VOTE_NODE_FIELDS[i];
     try {
-      const n = dao.findRecordsByFilter(
+      const rows = dao.findRecordsByFilter(
         "votes",
         field + " = {:nid}",
-        "",            // sort (irrelevant for a count)
+        "",            // sort (irrelevant for a sum)
         0,             // limit 0 == no limit in v0.22
         0,             // offset
         { nid: nodeId }
       );
       // If the collection has this field, this query succeeds; a non-empty
       // result, or a zero result on a valid field, is authoritative.
-      if (Array.isArray(n)) return n.length;
+      if (Array.isArray(rows)) {
+        let sum = 0;
+        for (let j = 0; j < rows.length; j++) {
+          const w = rows[j].getInt("weight");
+          sum += (w && w > 0) ? w : 1;
+        }
+        return sum;
+      }
     } catch (e) {
       // field probably doesn't exist on the votes collection — try the next.
     }
@@ -182,8 +205,8 @@ function recomputeForNode(dao, nodeId) {
   const storyId = node.getString("story");
   const parentId = node.getString("parent"); // "" for root
 
-  // 1) refresh this node's own votes/score
-  const votes = countVotesForNode(dao, nodeId);
+  // 1) refresh this node's own votes/score (votes = summed vote weight)
+  const votes = sumVoteWeightForNode(dao, nodeId);
   const score = clamp01(0.3 + votes * 0.05);
   node.set("votes", votes);
   node.set("score", score);
@@ -235,20 +258,27 @@ function recomputeForNode(dao, nodeId) {
     s.set("canon", shouldBeCanon);
     dao.saveRecord(s);
 
-    // 3) reputation: only on the up-transition to canon. Best-effort.
-    if (shouldBeCanon && !wasCanon) {
-      try {
-        const authorId = s.getString("author");
-        if (authorId) {
-          const author = dao.findRecordById("users", authorId);
-          if (author) {
-            author.set("reputation", author.getInt("reputation") + REPUTATION_REWARD);
+    // 3) reputation: SYMMETRIC so vote-flapping can't farm points.
+    //    +REWARD on the up-transition to canon, -REWARD on the down-transition
+    //    out of canon (clamped at 0). Best-effort — never fail the request.
+    try {
+      const authorId = s.getString("author");
+      if (authorId) {
+        const author = dao.findRecordById("users", authorId);
+        if (author) {
+          const cur = author.getInt("reputation");
+          let next = cur;
+          if (shouldBeCanon && !wasCanon) next = cur + REPUTATION_REWARD;
+          else if (!shouldBeCanon && wasCanon) next = cur - REPUTATION_REWARD;
+          if (next < 0) next = 0;
+          if (next !== cur) {
+            author.set("reputation", next);
             dao.saveRecord(author);
           }
         }
-      } catch (repErr) {
-        logErr("reputation bump for node " + s.getId(), repErr);
       }
+    } catch (repErr) {
+      logErr("reputation adjust for node " + s.getId(), repErr);
     }
   }
 }
@@ -256,6 +286,21 @@ function recomputeForNode(dao, nodeId) {
 // ----------------------------------------------------------------------------
 // Hook: votes created  -> recompute target node
 // ----------------------------------------------------------------------------
+
+// Block voting/staking on your OWN node (anti-self-promotion). The vote's
+// `user` is forced to the requester by the createRule (@request.auth.id =
+// user.id), so comparing it to the node's author is sufficient.
+onRecordBeforeCreateRequest((e) => {
+  if (isAdminRequest(e)) return;
+  const nodeId = voteNodeId(e.record);
+  if (!nodeId) return;
+  let node = null;
+  try { node = $app.dao().findRecordById("nodes", nodeId); } catch (_) { node = null; }
+  const voter = e.record.getString("user");
+  if (node && voter && node.getString("author") === voter) {
+    throw new BadRequestError("Нельзя голосовать за собственный узел.");
+  }
+}, "votes");
 
 onRecordAfterCreateRequest((e) => {
   try {
@@ -301,8 +346,18 @@ function sanitizeNodeRecord(record) {
 onRecordBeforeCreateRequest((e) => {
   try {
     sanitizeNodeRecord(e.record);
-    // root nodes default to canon=true
-    if (e.record.getString("parent") === "") e.record.set("canon", true);
+    // canon/score/votes are SERVER-DERIVED — never trust the client on create.
+    // A node starts with no votes; canon is true only for a root (no parent),
+    // every branch starts non-canon until votes elect it. Admins are exempt
+    // (e.g. the seed script sets historical values via the admin API).
+    if (!isAdminRequest(e)) {
+      const isRoot = e.record.getString("parent") === "";
+      e.record.set("votes", 0);
+      e.record.set("score", 0.3);
+      e.record.set("canon", isRoot);
+    } else if (e.record.getString("parent") === "") {
+      e.record.set("canon", true);
+    }
   } catch (err) {
     logErr("onRecordBeforeCreateRequest(nodes)", err);
     // do not block creation on a sanitation failure; the client also sanitizes
@@ -312,7 +367,53 @@ onRecordBeforeCreateRequest((e) => {
 onRecordBeforeUpdateRequest((e) => {
   try {
     sanitizeNodeRecord(e.record);
+    // Field-protect canon/score/votes: a node's author may edit prose, but
+    // CANNOT self-promote to canon or fake vote counts. Reset these to the
+    // stored values for non-admin callers; only vote hooks (programmatic
+    // dao.saveRecord, which bypasses request hooks) and admins may change them.
+    if (!isAdminRequest(e)) {
+      const orig = $app.dao().findRecordById("nodes", e.record.getId());
+      if (orig) {
+        e.record.set("canon", orig.getBool("canon"));
+        e.record.set("score", orig.getFloat("score"));
+        e.record.set("votes", orig.getInt("votes"));
+      }
+    }
   } catch (err) {
     logErr("onRecordBeforeUpdateRequest(nodes)", err);
   }
 }, "nodes");
+
+// ----------------------------------------------------------------------------
+// Hook: users create/update  -> field-protect role + reputation
+// ----------------------------------------------------------------------------
+//
+// PocketBase access rules are row-level: the default auth-collection update
+// rule lets a user edit THEIR OWN record, which would let anyone PATCH
+// role:"moderator" or inflate reputation. These hooks force role/reputation
+// to safe values for non-admin callers. The server's own reputation bumps go
+// through dao.saveRecord() (programmatic, NOT a *Request hook), so they are
+// unaffected. Superusers (Admin UI/API) may still set anything.
+
+onRecordBeforeCreateRequest((e) => {
+  try {
+    if (isAdminRequest(e)) return;
+    e.record.set("role", "user");   // никто не регистрируется сразу модератором
+    e.record.set("reputation", 0);
+  } catch (err) {
+    logErr("onRecordBeforeCreateRequest(users)", err);
+  }
+}, "users");
+
+onRecordBeforeUpdateRequest((e) => {
+  try {
+    if (isAdminRequest(e)) return;
+    const orig = $app.dao().findRecordById("users", e.record.getId());
+    if (orig) {
+      e.record.set("role", orig.getString("role") || "user");
+      e.record.set("reputation", orig.getInt("reputation"));
+    }
+  } catch (err) {
+    logErr("onRecordBeforeUpdateRequest(users)", err);
+  }
+}, "users");
