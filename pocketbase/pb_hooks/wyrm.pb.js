@@ -92,6 +92,22 @@ function forceAuthor(e, dao, field) {
   } catch (_) {}
 }
 
+// On UPDATE, author is immutable: restore author/author_handle to the stored
+// values for non-admin callers. Without this, the row-level updateRule
+// (@request.auth.id = author.id) passes against the OLD author, then the body
+// could reassign author to a foreign id — re-opening the spoof/reputation-farm
+// that forceAuthor closes on create. (Moderators edit prose, not authorship.)
+function restoreAuthor(e, dao, collection) {
+  if (isAdminRequest(e)) return;
+  try {
+    const orig = dao.findRecordById(collection, e.record.getId());
+    if (orig) {
+      e.record.set("author", orig.getString("author"));
+      e.record.set("author_handle", orig.getString("author_handle"));
+    }
+  } catch (_) {}
+}
+
 // Hard ceiling for a single vote's weight regardless of reputation.
 const HARD_WEIGHT_CAP = 1000;
 
@@ -437,6 +453,7 @@ onRecordBeforeUpdateRequest((e) => {
         e.record.set("votes", orig.getInt("votes"));
       }
     }
+    restoreAuthor(e, $app.dao(), "nodes"); // author immutable on update
   } catch (err) {
     logErr("onRecordBeforeUpdateRequest(nodes)", err);
   }
@@ -497,12 +514,27 @@ onRecordBeforeCreateRequest((e) => {
   try { forceAuthor(e, $app.dao()); } catch (err) { logErr("onRecordBeforeCreateRequest(comments)", err); }
 }, "comments");
 
+// UPDATE: author is immutable on all content collections (nodes handled above).
+onRecordBeforeUpdateRequest((e) => {
+  try { restoreAuthor(e, $app.dao(), "posts"); } catch (err) { logErr("onRecordBeforeUpdateRequest(posts)", err); }
+}, "posts");
+
+onRecordBeforeUpdateRequest((e) => {
+  try { restoreAuthor(e, $app.dao(), "stories"); } catch (err) { logErr("onRecordBeforeUpdateRequest(stories)", err); }
+}, "stories");
+
+onRecordBeforeUpdateRequest((e) => {
+  try { restoreAuthor(e, $app.dao(), "comments"); } catch (err) { logErr("onRecordBeforeUpdateRequest(comments)", err); }
+}, "comments");
+
 // ----------------------------------------------------------------------------
 // Hooks: social events -> notifications (server is the only creator)
 // ----------------------------------------------------------------------------
 
 onRecordAfterCreateRequest((e) => {
   try {
+    // bookmark (kind=save) is private — only a real like notifies the author.
+    if (e.record.getString("kind") === "save") return;
     const dao = $app.dao();
     const post = dao.findRecordById("posts", e.record.getString("post"));
     if (!post) return;

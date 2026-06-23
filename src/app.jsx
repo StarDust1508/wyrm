@@ -2980,6 +2980,19 @@ function useFeed(opts = {}) {
     catch (e) { wyrmErr(e, 'Не удалось загрузить ещё.'); }
     setLoadingMore(false);
   };
+  // Догрузить ВСЕ оставшиеся страницы (для фильтров, которые отбирают по уже
+  // загруженным постам — иначе совпадения со 2-й+ страницы были бы невидимы).
+  const loadAll = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      let pg = page, more = hasMore, acc = [], guard = 0;
+      while (more && guard++ < 100) { const r = await store.listPosts(pg + 1); acc = acc.concat(r.items); more = r.hasMore; pg++; }
+      if (acc.length) setPosts(l => [...l, ...acc]);
+      setPage(pg); setHasMore(false);
+    } catch (e) { wyrmErr(e, 'Не удалось загрузить ленту.'); }
+    setLoadingMore(false);
+  };
 
   const addPost = async (p) => { const np = await store.addPost(p); setPosts(l => [np, ...l]); return np; };
   const repostPost = async (post, author) => { const np = await store.repost(post, author); setPosts(l => [np, ...l]); return np; };
@@ -2994,7 +3007,7 @@ function useFeed(opts = {}) {
     try { await store.toggleReact(id, kind); }
     catch (e) { setPosts(l => l.map(p => p.id === id ? flip(p, kind) : p)); } // revert
   };
-  return { posts, loading, hasMore, loadMore, loadingMore, addPost, repostPost, toggleReact, removePost };
+  return { posts, loading, hasMore, loadMore, loadAll, loadingMore, addPost, repostPost, toggleReact, removePost };
 }
 
 /* поле ввода нового поста */
@@ -3293,10 +3306,13 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
 /* ---------------- ЛЕНТА ---------------- */
 function Feed({ go, user }) {
   const ref = useReveal();
-  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore } = useFeed();
+  const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadAll, loadingMore } = useFeed();
   const { communities } = useCommunities();
   const comName = (id) => (communities.find(c => c.id === id) || {}).name;
   const [filter, setFilter] = useState('all');
+  // не-«Всё» фильтруется клиентом по загруженным постам — догружаем всё, иначе
+  // совпадения со 2-й+ страницы (напр. пост подписки) были бы невидимы (H2).
+  useEffect(() => { if (filter !== 'all' && hasMore) loadAll(); }, [filter, hasMore]);
   const [following, setFollowing] = useState([]);
   useEffect(() => { let on = true; store.listFollowing().then(f => { if (on) setFollowing(f || []); }); return () => { on = false; }; }, []);
   const onFollow = async (h) => { const r = await store.toggleFollow(h); setFollowing(f => r ? [...new Set([...f, h])] : f.filter(x => x !== h)); };
@@ -3403,7 +3419,7 @@ function Communities({ go, user }) {
       </div>
 
       {creating && <CommunityCreate user={user} onClose={() => setCreating(false)}
-        onCreate={async (c) => { const made = await create(c, c.owner); setCreating(false); go('community', { communityId: made.id }); }} go={go} />}
+        onCreate={async (c) => { try { const made = await create(c, c.owner); setCreating(false); go('community', { communityId: made.id }); } catch (e) { wyrmErr(e, 'Не удалось создать сообщество.'); } }} go={go} />}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: 24 }}>
         {communities.map(c => (
@@ -3495,7 +3511,7 @@ function CommunityDetail({ go, ctx, user }) {
   const stories = allStories.filter(s => (c.stories || []).includes(s.id) || s.community === c.id);
   const feed = posts.filter(p => p.community === c.id || (p.ref && stories.some(s => s.id === p.ref.story)));
   const canManage = user && (user.role === 'moderator' || c.owner === (user.handle || user.name));
-  const removeCommunity = async () => { if (confirm('Удалить сообщество?')) { await store.deleteCommunity(c.id); go('communities'); } };
+  const removeCommunity = async () => { if (confirm('Удалить сообщество?')) { try { await store.deleteCommunity(c.id); go('communities'); } catch (e) { wyrmErr(e, 'Не удалось удалить сообщество.'); } } };
 
   return (
     <div className="view" ref={ref}>

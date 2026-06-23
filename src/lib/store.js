@@ -399,8 +399,9 @@ export async function createStory(s, rootNode) {
     if (rootNode) await addNode({ ...rootNode, story: story.id });
     return mapStory(story);
   }
-  // демо: пишем в localStorage + window.WYRM
-  const story = { contributors: 1, branches: 1, hot: false, ...s };
+  // демо: пишем в localStorage + window.WYRM (coverFile — File, не сериализуем)
+  const { coverFile, ...sClean } = s;
+  const story = { contributors: 1, branches: 1, hot: false, ...sClean };
   save('wyrm.stories', [story, ...load('wyrm.stories', [])]);
   if (WY().STORIES) WY().STORIES.push(story);
   if (rootNode) await addNode(rootNode);

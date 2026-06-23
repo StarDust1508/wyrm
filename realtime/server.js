@@ -456,18 +456,65 @@ function pbCreateNode(body) {
   });
 }
 
+async function pbGetJson(path) {
+  const headers = pbToken ? { Authorization: pbToken } : {};
+  let res = await fetch(`${PB_URL}${path}`, { headers });
+  if (res.status === 401) { await pbAuth(); res = await fetch(`${PB_URL}${path}`, { headers: pbToken ? { Authorization: pbToken } : {} }); }
+  if (!res.ok) throw new Error(`PB ${res.status}`);
+  return res.json();
+}
+
+// Resolve the room's story (slug -> stories record id) and pick an initial
+// parent = the story's canon tip, so persisted turns are NON-canon children of
+// the real story, never a stray canon root. If the slug doesn't resolve to a
+// real story, disable persistence for the session (no 400-loop). Memoized.
+async function resolveStoryContext(session) {
+  if (session.storyResolved) return;
+  session.storyResolved = true;
+  const slug = String(session.storyId || '').replace(/['"\\]/g, ''); // filter-safe
+  if (!slug) { session.persistDisabled = true; return; }
+  try {
+    const sres = await pbGetJson(`/api/collections/stories/records?perPage=1&filter=${encodeURIComponent(`slug='${slug}'`)}`);
+    const story = sres && sres.items && sres.items[0];
+    if (!story) {
+      session.persistDisabled = true;
+      warn(`persist disabled for session ${session.id}: no story with slug "${slug}"`);
+      return;
+    }
+    session.storyRecordId = story.id;
+    const nres = await pbGetJson(`/api/collections/nodes/records?perPage=1&sort=-created&filter=${encodeURIComponent(`story='${story.id}' && canon=true`)}`);
+    const tip = nres && nres.items && nres.items[0];
+    if (tip && !session.lastPersistedNodeId) session.lastPersistedNodeId = tip.id;
+  } catch (e) {
+    session.persistDisabled = true;
+    warn(`persist disabled for session ${session.id}: ${e?.message || e}`);
+  }
+}
+
+const handleCache = {};
+async function resolveHandle(userId) {
+  if (!userId) return '';
+  if (handleCache[userId] !== undefined) return handleCache[userId];
+  try {
+    const u = await pbGetJson(`/api/collections/users/records/${encodeURIComponent(userId)}`);
+    handleCache[userId] = (u && (u.handle || u.name)) || '';
+  } catch (_) { handleCache[userId] = ''; }
+  return handleCache[userId];
+}
+
 // Persist one committed turn as a real `nodes` record, using ONLY fields that
 // exist in the schema (story, parent, title, author, author_handle, canon,
 // html). Turns are chained (parent = previous turn) and never canon. On 401 we
 // re-authenticate once and retry.
 async function persistRow(row, session) {
+  const handle = await resolveHandle(row.who);
   const body = {
-    story: session.storyId,
-    parent: session.lastPersistedNodeId || '',
+    story: session.storyRecordId,                 // real stories id (resolved in flush)
+    parent: session.lastPersistedNodeId || '',     // canon tip, then chained
     title: 'Эстафета · ход',
-    author: row.who,          // PB user id of the writer
-    author_handle: row.who,   // display fallback (server has no handle lookup)
-    canon: false,             // room turns never auto-enter canon
+    author: row.who,                               // PB user id of the writer
+    author_handle: handle || row.who,              // real handle, id fallback
+    canon: false,                                  // room turns never auto-enter canon
     html: `<p>${escapeHtml(row.text)}</p>`,
   };
   let res = await pbCreateNode(body);
@@ -483,6 +530,11 @@ async function persistRow(row, session) {
 async function flushSession(session) {
   if (!persistEnabled()) return; // persistence disabled (no PB_URL / no creds)
   if (session.pendingPersist.length === 0) return;
+
+  // Resolve the story once; if the room doesn't map to a real story, drop the
+  // queue quietly (already logged) instead of looping 400s forever.
+  await resolveStoryContext(session);
+  if (session.persistDisabled || !session.storyRecordId) { session.pendingPersist.length = 0; return; }
 
   // Take the current batch; re-queue transient failures, DROP rows that have
   // exhausted their attempts so a permanent error can't requeue forever.
