@@ -250,7 +250,9 @@ function sanitizeHtml(html) {
 
   // 2) allowlist pass: keep only ALLOWED_TAGS; strip every attribute except a
   //    vetted href on <a>. Unknown tags are removed (their text content stays).
-  out = out.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g, function (m, slash, name, attrs) {
+  // attrs group consumes quoted values so a literal '>' inside an attribute
+  // (e.g. title="a>b") doesn't end the tag early and leak text.
+  out = out.replace(/<(\/?)([a-zA-Z][a-zA-Z0-9]*)\b((?:"[^"]*"|'[^']*'|[^>])*)>/g, function (m, slash, name, attrs) {
     var tag = name.toLowerCase();
     if (!ALLOWED_TAGS[tag]) return "";
     if (slash) return "</" + tag + ">";
@@ -272,13 +274,14 @@ function htmlToText(html) {
   t = t.replace(/<\/(p|div|br|li|h[1-6]|blockquote|tr|td|th)>/gi, " ");
   t = t.replace(/<br\s*\/?>/gi, " ");
   t = t.replace(/<[^>]+>/g, "");
-  // decode the few entities that affect word counting / excerpt readability
+  // decode the few entities that affect word counting / excerpt readability.
+  // &amp; is decoded LAST so "&amp;lt;" → "&lt;" (literal), not "<" (no double-decode).
   t = t.replace(/&nbsp;/gi, " ")
-       .replace(/&amp;/gi, "&")
        .replace(/&lt;/gi, "<")
        .replace(/&gt;/gi, ">")
        .replace(/&quot;/gi, '"')
-       .replace(/&#39;/gi, "'");
+       .replace(/&#39;/gi, "'")
+       .replace(/&amp;/gi, "&");
   return t.replace(/\s+/g, " ").trim();
 }
 
