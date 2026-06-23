@@ -3353,8 +3353,8 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
           const blocked = atMax && !on;
           return (
             <path key={id} d={sector(i, ro, r)}
-              fill={`oklch(0.7 0.15 ${t.hue} / ${on ? 0.95 : (hover === i ? 0.55 : 0.22)})`}
-              stroke={on ? `oklch(0.82 0.14 ${t.hue})` : 'var(--line-soft)'} strokeWidth={on ? 1.5 : 0.8}
+              fill="var(--ink)" fillOpacity={on ? 0.95 : (hover === i ? 0.55 : 0.22)}
+              stroke={on ? 'var(--ink-max)' : 'var(--line-soft)'} strokeWidth={on ? 1.5 : 0.8}
               style={{ cursor: blocked ? 'not-allowed' : 'pointer', transition: 'all .22s var(--ease)' }}
               onClick={() => { if (!blocked) onToggle(id); }}
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
