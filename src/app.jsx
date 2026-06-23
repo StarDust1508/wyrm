@@ -825,6 +825,8 @@ function Gate({ go }) {
     <div className="gate" ref={rootRef}>
       {/* film-grain noise overlay */}
       <div className="gate-grain" aria-hidden="true" />
+      {/* CSS-only constellation starfield */}
+      <div className="gate-stars" aria-hidden="true" />
       {/* hairline guide geometry */}
       <div className="gate-circle" aria-hidden="true" />
       <div className="gate-centerline" aria-hidden="true" />
@@ -844,7 +846,7 @@ function Gate({ go }) {
 
       {/* center: eyebrow + mirrored two-row wordmark (the primary CTA) */}
       <div className="gate-center">
-        <span className="gate-eyebrow">СОТВОРИ ИСТОРИЮ ВМЕСТЕ</span>
+        <span className="gate-eyebrow">СОТВОРИ ИСТОРИЮ ВМЕСТЕ<span className="blink" aria-hidden="true" style={{ marginLeft: '.4em' }}>▋</span></span>
         <button ref={wordRef} className="gate-word" onClick={() => setWelcome(true)}
           aria-label="Открыть приветствие WYRM">
           {/* WYRM reads top-to-bottom: legible "WY" then legible "RM".
@@ -2198,7 +2200,7 @@ function WritersRoom({ go }) {
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           {live ? (
             <span className="mono live-badge" style={{ fontSize: '.6rem', color: 'var(--ink)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink)' }} />В ЭФИРЕ
+              <span className="blink" style={{ width: 8, height: 8, borderRadius: 0, background: 'var(--ink)' }} />В ЭФИРЕ
             </span>
           ) : (
             <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Сервер realtime не подключён — локальная симуляция эстафеты">
@@ -2297,7 +2299,7 @@ function WritersRoom({ go }) {
                   <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', borderTop: i ? 'var(--rule-style)' : 'none' }}>
                     <span style={{ position: 'relative' }}>
                       <Avatar name={id} size={30} />
-                      {isHolder && <span style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: 'var(--ink)', border: '2px solid var(--bg-2)' }} />}
+                      {isHolder && <span className="blink" style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: 0, background: 'var(--ink)', border: '2px solid var(--bg-2)' }} />}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: '.86rem', fontWeight: 600 }}>@{nick(id)}</div>
