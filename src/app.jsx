@@ -652,6 +652,7 @@ function Catalog({ go }) {
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
+      <div className="reveal sec-index"><span className="code">WY · Каталог</span><span className="code">©2026</span></div>
       <div className="reveal" style={{ marginBottom: 30 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Все живые истории · {STORIES.length}</div>
         <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Каталог</h1>
@@ -2816,6 +2817,7 @@ function Feed({ go, user }) {
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
+      <div className="reveal sec-index"><span className="code">WY · Лента</span><span className="code">©2026</span></div>
       <div className="reveal" style={{ marginBottom: 26 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
         <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Лента</h1>
@@ -2897,6 +2899,7 @@ function Communities({ go, user }) {
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
+      <div className="reveal sec-index"><span className="code">WY · Сообщества</span><span className="code">©2026</span></div>
       <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 30 }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: 14 }}>Кружки авторов · {communities.length}</div>

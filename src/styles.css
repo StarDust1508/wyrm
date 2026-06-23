@@ -1348,3 +1348,13 @@ body.zen footer{ opacity:.4; }
   .cine-finale{ opacity:1; transform:none; pointer-events:auto; }
   .cine-bar{ width:100%; animation:none; }
 }
+
+/* ---------- unified section index (editorial code row) ---------- */
+.sec-index{ display:flex; justify-content:space-between; align-items:center; gap:16px;
+  padding-bottom:14px; margin-bottom:22px; border-bottom:var(--rule-style); }
+
+/* subtle depth/vignette across the app (Reframed-lab feel) */
+body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:radial-gradient(120% 80% at 50% -10%, transparent 60%, oklch(0 0 0 / .05));
+  mix-blend-mode:multiply; }
+[data-theme="night"] body::after{ background:radial-gradient(120% 85% at 50% -10%, transparent 55%, oklch(0 0 0 / .35)); mix-blend-mode:normal; }
