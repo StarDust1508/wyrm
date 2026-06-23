@@ -2204,7 +2204,7 @@ function WritersRoom({ go }) {
             </span>
           ) : (
             <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Сервер realtime не подключён — локальная симуляция эстафеты">
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink-3)' }} />демо-режим
+              <span style={{ width: 8, height: 8, borderRadius: 0, background: 'var(--ink-3)' }} />демо-режим
             </span>
           )}
           <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', display: 'inline-flex', gap: 5, alignItems: 'center' }}><Icon name="users" size={14} />{queue.length} в эстафете</span>
@@ -2974,7 +2974,7 @@ function AccountMenu({ user, onLogout, go }) {
   }, []);
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 999, border: '1px solid var(--line)' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px', borderRadius: 0, border: '1px solid var(--line)' }}>
         <Avatar name={user.name} size={26} />
         <span style={{ fontFamily: 'var(--display)', fontWeight: 600, fontSize: '.86rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</span>
       </button>
@@ -3179,7 +3179,7 @@ function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName, 
             </span>
             {canFollow && (
               <button className="mono" onClick={() => onFollow(post.author)}
-                style={{ fontSize: '.5rem', color: isFollowing ? 'var(--ink-3)' : 'var(--accent)', border: '1px solid var(--line-soft)', borderRadius: 999, padding: '1px 7px' }}>
+                style={{ fontSize: '.5rem', color: isFollowing ? 'var(--ink-3)' : 'var(--ink)', border: '1px solid var(--line-soft)', borderRadius: 0, padding: '1px 7px' }}>
                 {isFollowing ? '✓ вы подписаны' : '+ подписаться'}
               </button>
             )}
@@ -3718,9 +3718,9 @@ function Profile({ go, user }) {
       <div className="reveal card framed" style={{ padding: 'clamp(22px,3vw,34px)', marginBottom: 30, display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
         <label title="Сменить аватар" style={{ cursor: 'pointer', position: 'relative', display: 'inline-flex', flex: '0 0 auto' }}>
           {avatarUrl
-            ? <img src={avatarUrl} alt="аватар" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+            ? <img src={avatarUrl} alt="аватар" style={{ width: 72, height: 72, borderRadius: 0, objectFit: 'cover', filter: 'grayscale(1) contrast(1.03)' }} />
             : <Avatar name={handle} size={72} />}
-          <span style={{ position: 'absolute', right: -2, bottom: -2, width: 24, height: 24, borderRadius: '50%', background: 'var(--accent)', color: 'var(--accent-ink)', display: 'grid', placeItems: 'center', border: '2px solid var(--bg-2)' }}><Icon name="eye" size={12} /></span>
+          <span style={{ position: 'absolute', right: -2, bottom: -2, width: 24, height: 24, borderRadius: 0, background: 'var(--ink-max)', color: 'var(--accent-ink)', display: 'grid', placeItems: 'center', border: '2px solid var(--bg-2)' }}><Icon name="eye" size={12} /></span>
           <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => onAvatar(e.target.files[0])} />
         </label>
         <div style={{ flex: 1, minWidth: 220 }}>
