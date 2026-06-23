@@ -528,12 +528,8 @@ function Landing({ go }) {
   ];
   return (
     <div className="view" ref={ref}>
-      {/* HERO — editorial index (Malvah-inspired) */}
-      <section className="wrap" style={{ padding: 'clamp(40px,8vh,96px) 0 clamp(48px,7vh,80px)' }}>
-        <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, paddingBottom: 16, marginBottom: 'clamp(40px,7vh,84px)', borderBottom: 'var(--rule-style)' }}>
-          <span className="code">WY—01 · Платформа коллективного повествования</span>
-          <span className="code" style={{ whiteSpace: 'nowrap' }}>©2026 · живая</span>
-        </div>
+      {/* HERO */}
+      <section className="wrap" style={{ padding: 'clamp(56px,12vh,140px) 0 clamp(48px,7vh,80px)' }}>
         <h1 className="reveal display" style={{ fontSize: 'clamp(3.4rem, 12vw, 11rem)', maxWidth: '14ch', lineHeight: .94 }}>
           Истории, которые пишет <span style={{ color: 'var(--accent)' }}>сообщество</span>.
         </h1>
@@ -652,7 +648,6 @@ function Catalog({ go }) {
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
-      <div className="reveal sec-index"><span className="code">WY · Каталог</span><span className="code">©2026</span></div>
       <div className="reveal" style={{ marginBottom: 30 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Все живые истории · {STORIES.length}</div>
         <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Каталог</h1>
@@ -2364,16 +2359,16 @@ function buildTree() {
     const chord = Math.hypot(x2 - x, y2 - y);
     const plen = chord + Math.abs(curve) * 0.9;
     segs.push({ x, y, cx, cy, x2, y2, gen, len: plen, w: widthOf(gen), w2: widthOf(gen + 1) });
-    if (gen >= 6) { // крона: кластер листьев у кончика
-      const n = 2 + Math.floor(rng() * 3);
-      for (let i = 0; i < n; i++) leaves.push({ x: x2 + (rng() - 0.5) * 30, y: y2 + (rng() - 0.5) * 30, r: 5 + rng() * 10, gen, gold: rng() > 0.82 });
+    if (gen >= 5) { // крона: кластер листьев у кончика (немного — ради производительности)
+      const n = 1 + Math.floor(rng() * 2);
+      for (let i = 0; i < n; i++) leaves.push({ x: x2 + (rng() - 0.5) * 34, y: y2 + (rng() - 0.5) * 34, r: 7 + rng() * 12, gold: rng() > 0.8 });
       return;
     }
     const base = (26 - gen * 1.8) * Math.PI / 180;
     const jit = () => (rng() - 0.5) * 18 * Math.PI / 180;
     grow(x2, y2, ang - base + jit(), len * 0.76, gen + 1);
     grow(x2, y2, ang + base + jit(), len * 0.76, gen + 1);
-    if (rng() > 0.5) grow(x2, y2, ang + jit() * 0.5, len * 0.66, gen + 1); // средняя ветвь для густоты
+    if (gen <= 2 && rng() > 0.45) grow(x2, y2, ang + jit() * 0.5, len * 0.66, gen + 1); // редкая средняя ветвь
   }
   grow(baseX, trunkTop, -Math.PI / 2, 120, 1);
   return { segs, leaves, W, H };
@@ -2392,8 +2387,8 @@ function IntroFilm({ onDone, onAuth }) {
 
   const leaves = useMemo(() => {
     const r = mulberry32(42);
-    return Array.from({ length: 28 }, () => ({
-      x: r() * 100, s: 6 + r() * 9, delay: 4.6 + r() * 5.5, dur: 5.5 + r() * 4.5,
+    return Array.from({ length: 12 }, () => ({
+      x: r() * 100, s: 7 + r() * 9, delay: 4.6 + r() * 5.5, dur: 6 + r() * 4.5,
       drift: (r() - 0.5) * 180, gold: r() > 0.72,
     }));
   }, []);
@@ -2410,21 +2405,21 @@ function IntroFilm({ onDone, onAuth }) {
     <div className="intro cine" role="dialog" aria-label="Заставка WYRM">
       <div className="cine-veil" aria-hidden="true" />
 
-      {/* камера-стейдж с деревом */}
+      {/* камера-стейдж с деревом (рост — один transform на группе, дёшево для GPU) */}
       <div className="cine-stage" aria-hidden="true">
         <div className="cine-canopy-glow" />
         <svg className="cine-tree" viewBox={`0 0 ${T.W} ${T.H}`} preserveAspectRatio="xMidYMax meet">
-          {T.segs.map((s, i) => (
-            <path key={i} className="twig"
-              d={`M ${s.x} ${s.y} Q ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} ${s.x2.toFixed(1)} ${s.y2.toFixed(1)}`}
-              strokeWidth={s.w.toFixed(1)}
-              style={{ strokeDasharray: s.len.toFixed(1), strokeDashoffset: s.len.toFixed(1), animationDelay: (s.gen * 0.3).toFixed(2) + 's' }} />
-          ))}
-          {T.leaves.map((n, i) => (
-            <circle key={i} className="cine-leafnode" cx={n.x} cy={n.y} r={n.r.toFixed(1)}
-              fill={n.gold ? 'var(--gold)' : 'var(--accent)'}
-              style={{ animationDelay: (n.gen * 0.3 + 0.5 + (i % 7) * 0.05).toFixed(2) + 's' }} />
-          ))}
+          <g className="cine-grow">
+            {T.leaves.map((n, i) => (
+              <circle key={'l' + i} className="cine-leafnode" cx={n.x} cy={n.y} r={n.r.toFixed(1)}
+                fill={n.gold ? 'var(--gold)' : 'var(--accent)'} />
+            ))}
+            {T.segs.map((s, i) => (
+              <path key={'s' + i} className="twig"
+                d={`M ${s.x} ${s.y} Q ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} ${s.x2.toFixed(1)} ${s.y2.toFixed(1)}`}
+                strokeWidth={s.w.toFixed(1)} />
+            ))}
+          </g>
         </svg>
       </div>
 
@@ -2817,7 +2812,6 @@ function Feed({ go, user }) {
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
-      <div className="reveal sec-index"><span className="code">WY · Лента</span><span className="code">©2026</span></div>
       <div className="reveal" style={{ marginBottom: 26 }}>
         <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
         <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Лента</h1>
@@ -2899,7 +2893,6 @@ function Communities({ go, user }) {
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
-      <div className="reveal sec-index"><span className="code">WY · Сообщества</span><span className="code">©2026</span></div>
       <div className="reveal" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 30 }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: 14 }}>Кружки авторов · {communities.length}</div>
