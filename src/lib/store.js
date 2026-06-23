@@ -426,3 +426,62 @@ export async function voteNode(nodeId) {
   save('wyrm.votes', v);
   return !!v[nodeId];
 }
+
+/* ============================================================
+   MEDIA / FOLLOWS / NOTIFICATIONS (Фаза 1, хвост)
+   ============================================================ */
+
+/* медиа: файл → data URL (демо хранит обложку прямо в записи) */
+export function fileToDataURL(file) {
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
+}
+
+/* подписки на авторов */
+export async function listFollowing() {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
+    try { const r = await pb.collection('follows').getFullList({ filter: pb.filter('follower={:u}', { u: me.id }) }); return r.map(x => x.target_handle); } catch (e) { return []; }
+  }
+  return load('wyrm.following', []);
+}
+export async function toggleFollow(handle) {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) throw new Error('Нужно войти');
+    try {
+      const ex = await pb.collection('follows').getFullList({ filter: pb.filter('follower={:u}&&target_handle={:h}', { u: me.id, h: handle }) });
+      if (ex.length) { await pb.collection('follows').delete(ex[0].id); return false; }
+      await pb.collection('follows').create({ follower: me.id, target_handle: handle }); return true;
+    } catch (e) { return false; }
+  }
+  const f = load('wyrm.following', []);
+  const next = f.includes(handle) ? f.filter(x => x !== handle) : [...f, handle];
+  save('wyrm.following', next);
+  return next.includes(handle);
+}
+
+/* уведомления */
+const NOTI_SEED = [
+  { id: 'n1', kind: 'comment', text: '@mara.q ответила на твой пост', ago: 28 },
+  { id: 'n2', kind: 'like', text: '@grimwarden и ещё 4 оценили твою ветвь', ago: 140 },
+  { id: 'n3', kind: 'canon', text: 'Твоя глава вырвалась в канон ✦', ago: 360 },
+];
+export async function listNotifications() {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
+    try {
+      const r = await pb.collection('notifications').getFullList({ filter: pb.filter('user={:u}', { u: me.id }), sort: '-created' });
+      return r.map(x => ({ id: x.id, kind: x.kind, text: (x.ref && x.ref.text) || x.kind, ts: Date.parse(x.created) || Date.now(), read: !!x.read }));
+    } catch (e) { return []; }
+  }
+  const readMap = load('wyrm.notiRead', {});
+  const seeded = NOTI_SEED.map(n => ({ ...n, ts: Date.now() - n.ago * 60000 }));
+  return [...load('wyrm.notifications', []), ...seeded].map(n => ({ ...n, read: !!readMap[n.id] }));
+}
+export async function markAllNotificationsRead() {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb);
+    if (me) { try { const r = await pb.collection('notifications').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) }); await Promise.all(r.map(x => pb.collection('notifications').update(x.id, { read: true }))); } catch (e) {} }
+    return;
+  }
+  const all = await listNotifications(); const map = {}; all.forEach(n => { map[n.id] = true; }); save('wyrm.notiRead', map);
+}

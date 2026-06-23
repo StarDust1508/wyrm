@@ -262,6 +262,7 @@ function Icon({ name, size = 18, stroke = 1.6 }) {
     blocks:  <g><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/><path d="M13 5h6a2 2 0 0 1 2 2v4M11 13H5a2 2 0 0 0-2 2v4"/></g>,
     bolt:    <path d="M13 2L4 14h7l-1 8 9-12h-7z"/>,
     menu:    <path d="M4 7h16M4 12h16M4 17h16"/>,
+    bell:    <path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6M9.5 20a2.5 2.5 0 0 0 5 0"/>,
   };
   return <svg {...p} aria-hidden="true">{paths[name]}</svg>;
 }
@@ -302,16 +303,20 @@ function CanonMeter({ score, gold }) {
 }
 
 /* striped image placeholder (per guidelines — never hand-draw art) */
-function CoverSlot({ label, ratio = '3 / 4', hue = 200 }) {
+function CoverSlot({ label, ratio = '3 / 4', hue = 200, src }) {
   return (
     <div style={{
-      aspectRatio: ratio, width: '100%', borderRadius: 3, overflow: 'hidden',
+      aspectRatio: ratio, width: '100%', borderRadius: 6, overflow: 'hidden',
       border: '1px solid var(--line-soft)', position: 'relative',
-      background: `repeating-linear-gradient(135deg, var(--bg-2) 0 11px, var(--bg-3) 11px 22px)`,
+      background: src ? 'var(--bg-2)' : `repeating-linear-gradient(135deg, var(--bg-2) 0 11px, var(--bg-3) 11px 22px)`,
       display: 'grid', placeItems: 'center'
     }}>
-      <span style={{ position:'absolute', inset:0, background:`radial-gradient(80% 60% at 50% 0%, oklch(0.7 0.14 ${hue} / .14), transparent 70%)` }} />
-      <span className="mono" style={{ color: 'var(--ink-3)', fontSize: '.6rem', padding: '0 1em', textAlign: 'center', zIndex: 1 }}>{label}</span>
+      {src
+        ? <img src={src} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+        : <React.Fragment>
+            <span style={{ position: 'absolute', inset: 0, background: `radial-gradient(80% 60% at 50% 0%, oklch(0.7 0.14 ${hue} / .14), transparent 70%)` }} />
+            <span className="mono" style={{ color: 'var(--ink-3)', fontSize: '.6rem', padding: '0 1em', textAlign: 'center', zIndex: 1 }}>{label}</span>
+          </React.Fragment>}
     </div>
   );
 }
@@ -674,7 +679,7 @@ function Catalog({ go }) {
         {list.map((s, i) => (
           <button key={s.id} className="reveal story-card" onClick={() => go('reader', { story: s.id })} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ position: 'relative' }}>
-              <CoverSlot label={`обложка · ${s.title}`} hue={(TAGS[s.tags[0]] || {}).hue || 200} />
+              <CoverSlot label={`обложка · ${s.title}`} hue={(TAGS[s.tags[0]] || {}).hue || 200} src={s.cover} />
               {s.hot && <span className="mono" style={{ position: 'absolute', top: 10, left: 10, fontSize: '.54rem', padding: '.3em .55em', background: 'var(--accent)', color: 'var(--accent-ink)', borderRadius: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="flame" size={11} />В огне</span>}
             </div>
             <div>
@@ -905,6 +910,8 @@ function Compose({ go, ctx, setCtx }) {
   const [synopsis, setSynopsis] = useState('');
   const [bookId, setBookId] = useState(null);
   const [community, setCommunity] = useState(ctx.community || '');
+  const [cover, setCover] = useState('');
+  const pickCover = async (file) => { if (file) try { setCover(await store.fileToDataURL(file)); } catch (e) {} };
   const [communities, setCommunities] = useState([]);
   useEffect(() => { let on = true; store.listCommunities().then(r => { if (on) setCommunities(r.communities || []); }); return () => { on = false; }; }, []);
   const plain = htmlToText(body);
@@ -923,7 +930,7 @@ function Compose({ go, ctx, setCtx }) {
     const author = (me && (me.handle || me.name)) || 'аноним';
     const id = slug(title) + '-' + Date.now().toString(36).slice(-4);
     const story = { id, slug: id, title: title.trim(), author, synopsis: synopsis.trim() || (text.length > 140 ? text.slice(0, 140) + '…' : text),
-      contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false, community: community || null };
+      contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false, community: community || null, cover: cover || null };
     const root = { id: id + '-root', parent: null, story: id, title: 'Глава 1', author,
       canon: true, score: 0.5, votes: 0, words, tags: story.tags,
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, html: cleanHtml(body), chars: {} };
@@ -1005,6 +1012,14 @@ function Compose({ go, ctx, setCtx }) {
             <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Круг жанров книги</div>
             <GenreWheel selected={tags} onToggle={toggleTag} multi size={236} />
             {tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>{tags.map(t => <Tag key={t} id={t} />)}</div>}
+          </div>
+          <div className="card" style={{ padding: 18 }}>
+            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Обложка (необязательно)</div>
+            {cover && <img src={cover} alt="обложка" style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover', borderRadius: 6, marginBottom: 10 }} />}
+            <label className="btn btn-ghost btn-sm" style={{ width: '100%', justifyContent: 'center', cursor: 'pointer' }}>
+              <Icon name="eye" size={14} />{cover ? 'Заменить' : 'Загрузить обложку'}
+              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => pickCover(e.target.files[0])} />
+            </label>
           </div>
           <div className="card" style={{ padding: 18 }}>
             <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Сообщество (необязательно)</div>
@@ -2341,6 +2356,50 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
 }
 
 /* account chip + menu in the nav */
+/* колокольчик уведомлений */
+function NotificationsMenu({ user }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState([]);
+  const ref = useRef(null);
+  const load = () => store.listNotifications().then(setItems);
+  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('pointerdown', h);
+    return () => document.removeEventListener('pointerdown', h);
+  }, []);
+  if (!user) return null;
+  const unread = items.filter(n => !n.read).length;
+  const readAll = async () => { await store.markAllNotificationsRead(); load(); };
+  const kindIcon = { like: 'flame', comment: 'users', repost: 'fork', canon: 'star', room_turn: 'quill' };
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="icon-btn" title="Уведомления" onClick={() => { setOpen(o => !o); }} style={{ position: 'relative' }}>
+        <Icon name="bell" size={17} />
+        {unread > 0 && <span style={{ position: 'absolute', top: -4, right: -4, minWidth: 15, height: 15, padding: '0 3px', borderRadius: 9, background: 'var(--accent)', color: 'var(--accent-ink)', fontSize: 9, fontFamily: 'var(--mono)', display: 'grid', placeItems: 'center' }}>{unread}</span>}
+      </button>
+      <div className="studio-pop" data-open={open} style={{ width: 300, right: 0, left: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 12px 8px' }}>
+          <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>Уведомления</span>
+          {unread > 0 && <button className="mono path-crumb" onClick={readAll} style={{ fontSize: '.5rem', color: 'var(--accent)' }}>прочитать всё</button>}
+        </div>
+        {items.length === 0
+          ? <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', padding: '6px 12px 10px' }}>Пока пусто.</div>
+          : items.slice(0, 12).map(n => (
+              <div key={n.id} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', padding: '9px 12px', borderTop: 'var(--rule-style)', opacity: n.read ? .55 : 1 }}>
+                <span style={{ color: 'var(--accent)', marginTop: 2 }}><Icon name={kindIcon[n.kind] || 'bolt'} size={13} /></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '.8rem', lineHeight: 1.35 }}>{n.text}</div>
+                  <div className="mono" style={{ fontSize: '.46rem', color: 'var(--ink-3)' }}>{timeAgo(n.ts)}</div>
+                </div>
+                {!n.read && <span style={{ width: 6, height: 6, borderRadius: 9, background: 'var(--accent)', flex: '0 0 auto', marginTop: 6 }} />}
+              </div>
+            ))}
+      </div>
+    </div>
+  );
+}
+
 function AccountMenu({ user, onLogout, go }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -2617,8 +2676,11 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
 }
 
 /* карточка поста ленты — лайк / репост / комментарии / сохранить (единая модель) */
-function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName }) {
+function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName, following, onFollow }) {
   const k = FEED_KINDS[post.kind] || FEED_KINDS.post;
+  const myHandle = user && (user.handle || user.name);
+  const canFollow = user && onFollow && post.author && post.author !== myHandle;
+  const isFollowing = following && following.includes(post.author);
   const [openC, setOpenC] = useState(false);
   const [comments, setComments] = useState(null);
   const [ctext, setCtext] = useState('');
@@ -2651,6 +2713,12 @@ function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName }
             <span className="mono" style={{ fontSize: '.54rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Icon name={k.icon} size={11} />{k.label}
             </span>
+            {canFollow && (
+              <button className="mono" onClick={() => onFollow(post.author)}
+                style={{ fontSize: '.5rem', color: isFollowing ? 'var(--ink-3)' : 'var(--accent)', border: '1px solid var(--line-soft)', borderRadius: 999, padding: '1px 7px' }}>
+                {isFollowing ? '✓ вы подписаны' : '+ подписаться'}
+              </button>
+            )}
           </div>
           <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>{timeAgo(post.ts)}</span>
         </div>
@@ -2853,9 +2921,12 @@ function Feed({ go, user }) {
   const { communities } = useCommunities();
   const comName = (id) => (communities.find(c => c.id === id) || {}).name;
   const [filter, setFilter] = useState('all');
+  const [following, setFollowing] = useState([]);
+  useEffect(() => { let on = true; store.listFollowing().then(f => { if (on) setFollowing(f || []); }); return () => { on = false; }; }, []);
+  const onFollow = async (h) => { const r = await store.toggleFollow(h); setFollowing(f => r ? [...new Set([...f, h])] : f.filter(x => x !== h)); };
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
-  const kinds = [['all', 'Всё'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
-  const list = posts.filter(p => filter === 'all' || p.kind === filter);
+  const kinds = [['all', 'Всё'], ['following', 'Подписки'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
+  const list = posts.filter(p => filter === 'all' ? true : filter === 'following' ? following.includes(p.author) : p.kind === filter);
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
@@ -2874,8 +2945,8 @@ function Feed({ go, user }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {list.length === 0
-          ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>Пока тут тихо. Напиши первым.</p>
-          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} communityName={comName(p.community)} />)}
+          ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>{filter === 'following' ? 'Тут появятся посты тех, на кого ты подписан.' : 'Пока тут тихо. Напиши первым.'}</p>
+          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} communityName={comName(p.community)} following={following} onFollow={onFollow} />)}
       </div>
     </div>
   );
@@ -3309,6 +3380,7 @@ function App() {
             <Icon name={theme === 'night' ? 'moon' : 'sun'} size={17} />
           </button>
           <button className="icon-btn" title="Настройки" onClick={() => setSettingsOpen(true)}><Icon name="sliders" size={17} /></button>
+          {user && <NotificationsMenu user={user} />}
           {user
             ? <AccountMenu user={user} onLogout={async () => { await store.signOut(); setUser(null); }} go={go} />
             : <button className="btn btn-primary btn-sm" onClick={() => openAuth('login')}>Войти</button>}
