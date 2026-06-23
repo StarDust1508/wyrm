@@ -751,7 +751,7 @@ function GateRegMark({ side }) {
 /* One corner nav target: label + sub, bottom corners carry an arrow-out glyph box. */
 function GateCorner({ pos, label, sub, arrow, onClick, ariaLabel }) {
   return (
-    <button className={'gate-corner gate-corner-' + pos} onClick={onClick} aria-label={ariaLabel}>
+    <button className={'gate-corner invert-hover gate-corner-' + pos} onClick={onClick} aria-label={ariaLabel}>
       <span className="gate-corner-row">
         <span className="gate-corner-label">{label}</span>
         {arrow && (
@@ -3831,10 +3831,11 @@ function loadUser() {
 function App() {
   const [route, setRoute] = useState('landing');
   const [ctx, setCtx] = useState({});
+  const [hist, setHist] = useState([]); // stack of {route, ctx} snapshots powering Back
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const saved = useRef(loadCfg()).current;
-  const [theme, setTheme] = useState(saved.theme || 'manuscript');
+  const [theme, setTheme] = useState(({ night: 'inverted', manuscript: 'paper' }[saved.theme]) || saved.theme || 'paper');
   const [accent, setAccent] = useState(saved.accent || 'theme');
   const [font, setFont] = useState(saved.font || 'onest');
   const [scale, setScale] = useState(saved.scale || 100);
@@ -3858,19 +3859,41 @@ function App() {
   const doAuth = (u) => { setUser(u); setAuthOpen(false); };
   const openAuth = (mode) => { setAuthMode(mode || 'login'); setAuthOpen(true); };
 
-  // apply + persist
+  // apply + persist — monochrome system: only theme + scale matter
+  // (accent/display inline overrides are cleared so the ink token system wins)
   useEffect(() => {
     const r = document.documentElement;
     r.dataset.theme = theme;
-    const a = ACCENTS.find(x => x.id === accent) || ACCENTS[0];
-    if (a.accent) { r.style.setProperty('--accent', a.accent); r.style.setProperty('--gold', a.gold); }
-    else { r.style.removeProperty('--accent'); r.style.removeProperty('--gold'); }
-    r.style.setProperty('--display', (FONTS.find(f => f.id === font) || FONTS[0]).stack);
+    r.style.removeProperty('--accent');
+    r.style.removeProperty('--gold');
+    r.style.removeProperty('--display');
     r.style.fontSize = (16 * scale / 100) + 'px';
     localStorage.setItem('wyrm.cfg', JSON.stringify({ theme, accent, font, scale, atmos, plugins, customs }));
   }, [theme, accent, font, scale, atmos, plugins, customs]);
 
-  const go = (r, payload) => { if (payload) setCtx(c => ({ ...c, ...payload })); setRoute(r); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const ROUTE_LABEL = { home: 'Главная', catalog: 'Каталог', reader: 'Древо', compose: 'Писать', merge: 'Слияние', lore: 'Кодекс мира', stakes: 'Канон-ставки', room: 'Комната авторов', cut: 'Сборка читателя', plugins: 'Расширения', feed: 'Лента', communities: 'Сообщества', community: 'Сообщество', profile: 'Профиль' };
+  const go = (r, payload) => {
+    setHist(h => (r === route ? h : [...h, { route, ctx }]));
+    if (payload) setCtx(c => ({ ...c, ...payload }));
+    setRoute(r);
+    try { window.history.pushState({ wyrm: r }, ''); } catch (e) {}
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const back = () => {
+    setHist(h => {
+      if (!h.length) { setRoute('landing'); return h; }
+      const prev = h[h.length - 1];
+      setRoute(prev.route); setCtx(prev.ctx);
+      return h.slice(0, -1);
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  const backRef = useRef(); backRef.current = back;
+  useEffect(() => {
+    const onpop = () => backRef.current && backRef.current();
+    window.addEventListener('popstate', onpop);
+    return () => window.removeEventListener('popstate', onpop);
+  }, []);
 
   const NAV = [['home', 'Главная'], ['feed', 'Сообщество'], ['catalog', 'Каталог'], ['reader', 'Древо']];
   const STUDIO = [
@@ -3892,9 +3915,14 @@ function App() {
           навигации — вся навигация в выезжающем меню (на любом размере экрана). */}
       {route !== 'landing' && (
         <header className="nav wrap topbar" style={{ width: 'min(100% - 48px, var(--maxw))' }}>
-          <div className="brand" onClick={() => go('landing')}>
-            <span className="logo"><span className="w">W</span>YRM</span>
-            {studioRoute && <span className="tld">студия</span>}
+          <div className="navctl">
+            <button className="navctl-back invert-hover" onClick={() => window.history.back()} aria-label="Назад" title="Назад">
+              <Icon name="arrowL" size={13} stroke={1.5} /><span>{hist.length ? 'Назад' : 'Ворота'}</span>
+            </button>
+            <span className="navctl-crumb mono">
+              <button className="navctl-home" onClick={() => go('landing')}><span className="w">W</span>YRM</button>
+              <span className="navctl-sep">/</span>{studioRoute ? 'Студия · ' : ''}{ROUTE_LABEL[route] || route}
+            </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {user && <NotificationsMenu user={user} />}
@@ -3922,7 +3950,7 @@ function App() {
             ))}
             <div className="mobile-menu-label">Ещё</div>
             <button className="mobile-link" onClick={() => { go('plugins'); setMenuOpen(false); }}><Icon name="blocks" size={15} />Расширения{enabledPlugins > 0 ? ' · ' + enabledPlugins : ''}</button>
-            <button className="mobile-link" onClick={() => { setTheme(t => t === 'night' ? 'manuscript' : 'night'); }}><Icon name={theme === 'night' ? 'moon' : 'sun'} size={15} />Сменить мир</button>
+            <button className="mobile-link" onClick={() => { setTheme(t => t === 'inverted' ? 'paper' : 'inverted'); }}><Icon name={theme === 'inverted' ? 'sun' : 'moon'} size={15} />Сменить мир</button>
             <button className="mobile-link" onClick={() => { setSettingsOpen(true); setMenuOpen(false); }}><Icon name="sliders" size={15} />Настройки</button>
             {user
               ? <React.Fragment>
@@ -3961,7 +3989,7 @@ function App() {
       <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18, position: 'relative', zIndex: 1 }}>
         <div className="brand"><span className="logo" style={{ fontSize: '1.2rem' }}><span className="w">W</span>YRM</span></div>
         <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', maxWidth: '36ch' }}>Площадка коллективного повествования. Каждая история живёт, пока её пишут.</p>
-        <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{theme === 'night' ? 'мир · Ночь' : 'мир · Манускрипт'}</div>
+        <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{theme === 'inverted' ? 'мир · Инверсия' : 'мир · Бумага'}</div>
       </footer>
       )}
 
@@ -3998,7 +4026,7 @@ function SettingsDrawer({ open, onClose, theme, setTheme, accent, setAccent, fon
           {/* theme world */}
           <Field label="Мир оформления" hint="Две темы — два разных характера, не просто цвет">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {[['night', 'Ночь', 'moon', 'Обсидиан · свечение углей'], ['manuscript', 'Манускрипт', 'sun', 'Пергамент · чернила']].map(([k, l, ic, d]) => (
+              {[['paper', 'Бумага', 'sun', 'Чёрное по белому · чернила'], ['inverted', 'Инверсия', 'moon', 'Белое по чёрному · негатив']].map(([k, l, ic, d]) => (
                 <button key={k} onClick={() => setTheme(k)} className="swatch-tile" data-active={theme === k}>
                   <Icon name={ic} size={18} />
                   <span className="display" style={{ fontSize: '.95rem', marginTop: 8 }}>{l}</span>

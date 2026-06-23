@@ -1025,14 +1025,28 @@ img{ display:block; max-width:100%; }
 .nav{
   position:sticky; top:0; z-index:40;
   display:flex; align-items:center; justify-content:space-between;
-  padding:18px 0; backdrop-filter:blur(12px);
-  background:color-mix(in oklab, var(--bg) 72%, transparent);
-  border-bottom:1px solid var(--line-soft);
+  padding:14px 0; backdrop-filter:none;
+  background:var(--bg);
+  border-bottom:var(--rule-style);
 }
 .brand{ display:flex; align-items:baseline; gap:.55rem; cursor:pointer; }
-.brand .logo{ font-family:var(--display); font-weight:800; font-size:1.5rem; letter-spacing:-.01em; }
-.brand .logo .w{ color:var(--accent); }
+.brand .logo{ font-family:var(--display); font-weight:700; font-size:1.5rem; letter-spacing:-.01em; }
+.brand .logo .w{ color:inherit; }
 .brand .tld{ font-family:var(--mono); font-weight:500; font-size:.56rem; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3); transform:translateY(-2px); }
+
+/* global Back / breadcrumb control (reframed corner nav) */
+.navctl{ display:flex; align-items:center; gap:14px; min-width:0; }
+.navctl-back{
+  font-family:var(--mono); font-weight:500; font-size:var(--fs-meta);
+  text-transform:uppercase; letter-spacing:.1em;
+  display:inline-flex; align-items:center; gap:.5em;
+  padding:.5em .85em; border:1px solid var(--line-hard); color:var(--ink-max); background:var(--bg);
+}
+.navctl-crumb{ font-size:var(--fs-meta); color:var(--ink-3); letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-transform:uppercase; }
+.navctl-home{ font-family:var(--display); font-weight:700; color:var(--ink); letter-spacing:-.01em; font-size:var(--fs-ui-sm); transition:color var(--ms-color) var(--ease-color); }
+.navctl-home:hover{ color:var(--ink-max); }
+.navctl-sep{ margin:0 .55em; color:var(--line-hard); }
+@media (max-width:560px){ .navctl-crumb{ display:none; } }
 .nav-links{ display:flex; gap:6px; align-items:center; }
 .nav-link{
   font-family:var(--display); font-weight:500; font-size:.92rem; padding:.5em .8em; border-radius:3px;
@@ -1600,10 +1614,10 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 }
 
 /* ---------- topbar: «не панель», а плавающие логотип + бургер ---------- */
-.topbar{ border-bottom:0; background:transparent; backdrop-filter:none; }
-.topbar .brand{ pointer-events:auto; }
+.topbar{ border-bottom:var(--rule-style); background:var(--bg); backdrop-filter:none; }
+.topbar .brand, .topbar .navctl{ pointer-events:auto; }
 /* лёгкая подложка под иконками, чтобы бургер читался над любым контентом */
-.topbar .icon-btn{ background:color-mix(in oklab, var(--bg) 70%, transparent); backdrop-filter:blur(8px); }
+.topbar .icon-btn{ background:var(--bg); backdrop-filter:none; }
 
 /* ---------- единый заголовок страниц (как на воротах) ---------- */
 .page-head{ padding:clamp(54px,10vh,128px) 0 clamp(18px,3vh,38px); position:relative; }
