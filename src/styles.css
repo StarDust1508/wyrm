@@ -1110,63 +1110,6 @@ body.zen footer{ opacity:.4; }
 .auth-input:focus{ border-color:var(--accent); }
 .auth-input::placeholder{ color:var(--ink-3); opacity:.6; }
 
-/* ---------- intro film ---------- */
-.intro{
-  position:fixed; inset:0; z-index:80; overflow:hidden;
-  background:radial-gradient(120% 90% at 50% 8%, var(--bg-2), var(--bg) 60%);
-  color:var(--ink);
-}
-.intro-veil{ position:absolute; inset:0; pointer-events:none; }
-.intro-veil::after{
-  content:""; position:absolute; inset:0; opacity:var(--grain-opacity); mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-/* мягкое сияние, поднимающееся из-под дерева */
-.intro-glow{
-  position:absolute; left:50%; bottom:-12%; transform:translateX(-50%);
-  width:120vw; height:80vh; pointer-events:none;
-  background:radial-gradient(ellipse at 50% 100%, color-mix(in oklab, var(--accent) 22%, transparent), transparent 62%);
-  filter:blur(8px);
-}
-@media (prefers-reduced-motion: no-preference){
-  .intro-glow{ animation:introGlow 6s ease-in-out infinite alternate; }
-}
-@keyframes introGlow{ from{ opacity:.55; } to{ opacity:1; transform:translateX(-50%) scale(1.06); } }
-
-/* растущее древо */
-.intro-tree{
-  position:absolute; left:50%; bottom:0; transform:translateX(-50%);
-  width:min(1100px, 100vw); height:min(50vh, 420px); pointer-events:none; overflow:visible;
-}
-.twig{
-  fill:none; stroke:color-mix(in oklab, var(--ink-3) 58%, var(--accent));
-  stroke-linecap:round;
-}
-.twig-node{ filter:drop-shadow(0 0 4px color-mix(in oklab, var(--accent) 60%, transparent)); }
-@media (prefers-reduced-motion: no-preference){
-  .twig-node{ animation:twigPulse 3.4s var(--ease) infinite; }
-  @keyframes twigPulse{ 0%,100%{ opacity:.82; } 50%{ opacity:1; } }
-}
-
-.intro-scene{
-  position:absolute; left:0; right:0; top:25%; z-index:2;
-  display:flex; flex-direction:column; align-items:center; text-align:center; padding:0 24px;
-  transition:opacity 1s var(--ease), transform 1s var(--ease), filter 1s var(--ease);
-}
-.intro-eyebrow{ color:var(--ink-3); }
-.intro-word{ font-size:clamp(3.6rem,15vw,10rem); font-weight:800; letter-spacing:-.01em; }
-.intro-line{ font-size:clamp(2.1rem,6.2vw,4.8rem); font-weight:700; line-height:1.08; text-wrap:balance; }
-.intro-sub{ margin-top:22px; color:var(--ink-3); letter-spacing:.26em; }
-.intro-cta{ display:flex; gap:12px; justify-content:center; margin-top:40px; flex-wrap:wrap; }
-
-.intro-skip{
-  position:absolute; top:24px; right:26px; z-index:3; display:inline-flex; align-items:center; gap:6px;
-  color:var(--ink-3); padding:8px 14px; border:1px solid var(--line); border-radius:999px; transition:.2s var(--ease);
-}
-.intro-skip:hover{ color:var(--ink); border-color:var(--ink-3); }
-.intro-progress{ position:absolute; bottom:0; left:0; right:0; height:3px; background:var(--line-soft); z-index:3; }
-.intro-progress > div{ height:100%; background:var(--accent); transition:width .1s linear; box-shadow:0 0 10px var(--accent); }
-
 /* ---------- scrollbar ---------- */
 ::-webkit-scrollbar{ width:10px; height:10px; }
 ::-webkit-scrollbar-thumb{ background:var(--line); border-radius:10px; border:3px solid var(--bg); }
@@ -1381,4 +1324,162 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .desk{ grid-template-columns:1fr !important; }
   .desk-dock{ position:static !important; max-width:none; }
   .desk-toggle-l{ display:none; }
+}
+
+/* ============================================================
+   GATE — reframed.online-style landing.
+   Fully self-contained: its own FIXED light palette via .gate-scoped
+   custom props, so it does NOT depend on the app's night/manuscript theme.
+   All selectors namespaced under .gate / .gwelcome.
+   ============================================================ */
+.gate{
+  --g-bg:#F1F0EC;          /* warm near-white */
+  --g-ink:#14110f;         /* near-black */
+  --g-line:rgba(0,0,0,.07);/* hairline guides */
+  --g-ease:cubic-bezier(.22,.61,.36,1);
+  position:fixed; inset:0; overflow:hidden; z-index:5;
+  background:var(--g-bg); color:var(--g-ink);
+  font-family:var(--mono);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* film-grain noise — fractalNoise SVG, faint, overlay-blended */
+.gate-grain{
+  position:absolute; inset:0; pointer-events:none; z-index:1;
+  opacity:.045; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* hairline guide circle — perfectly centered */
+.gate-circle{
+  position:absolute; top:50%; left:50%; z-index:1;
+  width:min(80vh,1000px); aspect-ratio:1; border-radius:50%;
+  border:1px solid var(--g-line);
+  transform:translate(-50%,-50%); pointer-events:none;
+}
+/* full-width centerline at 50% height */
+.gate-centerline{
+  position:absolute; top:50%; left:0; right:0; height:1px; z-index:1;
+  background:var(--g-line); transform:translateY(-.5px); pointer-events:none;
+}
+
+/* registration / crosshair marks — vertically centered on the centerline */
+.gate-reg{
+  position:absolute; top:50%; z-index:2; color:var(--g-ink); opacity:.55;
+  transform:translateY(-50%); pointer-events:none;
+}
+.gate-reg-left{ left:clamp(14px,3vw,40px); }
+.gate-reg-right{ right:clamp(14px,3vw,40px); }
+
+/* ---------- corners ---------- */
+.gate-corner{
+  position:absolute; z-index:3; inset:auto; display:flex; flex-direction:column; gap:.28em;
+  background:none; border:0; padding:0; cursor:pointer;
+  font-family:var(--mono); color:var(--g-ink); text-align:left;
+  transition:opacity .2s var(--g-ease);
+}
+.gate-corner-tl{ top:clamp(22px,4vw,36px); left:clamp(22px,4vw,36px); align-items:flex-start; text-align:left; }
+.gate-corner-tr{ top:clamp(22px,4vw,36px); right:clamp(22px,4vw,36px); align-items:flex-end; text-align:right; }
+.gate-corner-bl{ bottom:clamp(22px,4vw,36px); left:clamp(22px,4vw,36px); align-items:flex-start; text-align:left; }
+.gate-corner-br{ bottom:clamp(22px,4vw,36px); right:clamp(22px,4vw,36px); align-items:flex-end; text-align:right; }
+
+.gate-corner-row{ display:flex; align-items:center; gap:.5em; }
+.gate-corner-tr .gate-corner-row,
+.gate-corner-br .gate-corner-row{ flex-direction:row-reverse; }
+.gate-corner-label{
+  font-size:clamp(10px,1.1vw,12px); font-weight:500; letter-spacing:.08em; text-transform:uppercase;
+  position:relative; padding-bottom:2px;
+}
+.gate-corner-label::after{
+  content:""; position:absolute; left:0; right:0; bottom:0; height:1px; background:currentColor;
+  transform:scaleX(0); transform-origin:left; transition:transform .25s var(--g-ease);
+}
+.gate-corner-tr .gate-corner-label::after,
+.gate-corner-br .gate-corner-label::after{ transform-origin:right; }
+.gate-corner:hover .gate-corner-label::after,
+.gate-corner:focus-visible .gate-corner-label::after{ transform:scaleX(1); }
+.gate-corner-sub{
+  font-size:clamp(8px,.85vw,9.5px); font-weight:500; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--g-ink); opacity:.42; transition:opacity .2s var(--g-ease);
+}
+.gate-corner:hover .gate-corner-sub,
+.gate-corner:focus-visible .gate-corner-sub{ opacity:.7; }
+/* arrow-out glyph in a 1px box (bottom corners) */
+.gate-corner-arrow{
+  display:grid; place-items:center; width:16px; height:16px; flex:0 0 auto;
+  border:1px solid var(--g-ink); color:var(--g-ink);
+}
+.gate-corner:focus-visible{ outline:1px solid var(--g-ink); outline-offset:6px; }
+
+/* ---------- center ---------- */
+.gate-center{
+  position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:2;
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  width:100%; padding:0 24px; pointer-events:none;
+}
+.gate-eyebrow{
+  font-size:clamp(9px,1vw,11px); font-weight:500; letter-spacing:.24em; text-transform:uppercase;
+  color:var(--g-ink); opacity:.5; margin-bottom:clamp(8px,1.4vh,18px);
+}
+/* wordmark — two stacked rows, the second mirrored; heavily blurred → focus on hover */
+.gate-word{
+  position:relative;
+  background:none; border:0; padding:0; margin:0; cursor:pointer; pointer-events:auto;
+  display:flex; flex-direction:column; align-items:center; line-height:.78;
+  font-family:var(--mono); font-weight:700; color:var(--g-ink);
+  font-size:clamp(5rem,22vw,18rem); letter-spacing:-.04em;
+  filter:blur(8px); transition:filter .5s var(--g-ease);
+}
+.gate-word-line{ display:block; }
+/* reframed mirror signature: a faint vertically-flipped reflection echoed
+   beneath the legible "RM" row. Decorative only (aria-hidden) and taken OUT
+   of flow (position:absolute) so it never pulls the legible "WY / RM" off the
+   centerline — the word still reads top-to-bottom WYRM and stays centered. */
+.gate-word-mirror{
+  position:absolute; top:100%; left:0; right:0; pointer-events:none;
+  transform:scaleY(-1); transform-origin:top; opacity:.15;
+  -webkit-mask-image:linear-gradient(to bottom, #000, transparent 68%);
+          mask-image:linear-gradient(to bottom, #000, transparent 68%);
+}
+.gate-word:hover,
+.gate-word:focus-visible{ filter:blur(1px); }
+.gate-word:focus-visible{ outline:none; }
+
+/* ---------- black welcome overlay ---------- */
+.gwelcome{
+  position:fixed; inset:0; z-index:20; background:#000; color:#fff;
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  font-family:var(--mono);
+  animation:gwelcome-in .28s var(--g-ease, ease);
+}
+@keyframes gwelcome-in{ from{ opacity:0; } to{ opacity:1; } }
+.gwelcome-inner{ display:flex; flex-direction:column; align-items:center; text-align:center; max-width:680px; }
+.gwelcome-greeting{
+  margin:0 0 clamp(20px,4vh,34px); font-size:clamp(11px,1.6vw,15px); font-weight:400;
+  letter-spacing:.12em; line-height:2; text-transform:uppercase; color:#fff;
+}
+.gwelcome-greeting strong{ font-weight:700; }
+.gwelcome-actions{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; }
+.gwelcome-btn{
+  border:1px solid #fff; color:#fff; background:transparent; cursor:pointer;
+  font-family:var(--mono); font-size:clamp(9px,1vw,11px); font-weight:500;
+  letter-spacing:.14em; text-transform:uppercase; padding:9px 14px;
+  transition:background .2s ease, color .2s ease;
+}
+.gwelcome-btn:hover,
+.gwelcome-btn:focus-visible{ background:#fff; color:#000; outline:none; }
+.gwelcome-btn:focus-visible{ box-shadow:0 0 0 2px #000, 0 0 0 3px #fff; }
+
+/* respect reduced motion — no focus animation, no overlay fade */
+@media (prefers-reduced-motion: reduce){
+  .gate-word{ filter:blur(8px) !important; transition:none; }
+  .gate-word:hover, .gate-word:focus-visible{ filter:blur(8px) !important; }
+  .gwelcome{ animation:none; }
+  .gate-corner, .gate-corner-label::after, .gate-corner-sub{ transition:none; }
+}
+
+/* tighten margins on very small screens so corners never collide with center */
+@media (max-width:560px){
+  .gate-corner-sub{ display:none; }
+  .gate-word{ font-size:clamp(4.5rem,30vw,9rem); }
 }

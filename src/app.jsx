@@ -708,6 +708,134 @@ function Catalog({ go }) {
 
 Object.assign(window, { Landing, Catalog });
 
+/* ---------------- GATE — лендинг в стиле reframed.online ----------------
+   Полноэкранный fixed-слой без скролла, собственная светлая палитра (не зависит
+   от темы приложения). Центр — «WYRM» (клик → приветствие → home), 4 угла — навигация.
+   Все стили — .gate / .gwelcome в styles.css. */
+/* Регистрационная метка-крест (как у типографских шаблонов) на центральной линии. */
+function GateRegMark({ side }) {
+  return (
+    <svg className={'gate-reg gate-reg-' + side} width="26" height="26" viewBox="0 0 26 26"
+      fill="none" aria-hidden="true" focusable="false">
+      {/* axis-aligned square */}
+      <rect x="6.5" y="6.5" width="13" height="13" stroke="currentColor" strokeWidth="1" />
+      {/* 45deg square overlapping it */}
+      <rect x="6.5" y="6.5" width="13" height="13" stroke="currentColor" strokeWidth="1"
+        transform="rotate(45 13 13)" />
+      {/* horizontal-axis ticks */}
+      <path d="M0 13h5M21 13h5" stroke="currentColor" strokeWidth="1" />
+      {/* center dot */}
+      <circle cx="13" cy="13" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+/* One corner nav target: label + sub, bottom corners carry an arrow-out glyph box. */
+function GateCorner({ pos, label, sub, arrow, onClick, ariaLabel }) {
+  return (
+    <button className={'gate-corner gate-corner-' + pos} onClick={onClick} aria-label={ariaLabel}>
+      <span className="gate-corner-row">
+        <span className="gate-corner-label">{label}</span>
+        {arrow && (
+          <span className="gate-corner-arrow" aria-hidden="true">
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
+              <path d="M2 7L7 2M3 2h4v4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        )}
+      </span>
+      <span className="gate-corner-sub">{sub}</span>
+    </button>
+  );
+}
+
+function Gate({ go }) {
+  const [welcome, setWelcome] = useState(false);
+  const overlayRef = useRef(null);
+  const wordRef = useRef(null);
+
+  // Welcome overlay: Escape closes it, focus is trapped inside while open,
+  // and focus returns to the wordmark on dismiss. (Accessibility per spec.)
+  useEffect(() => {
+    if (!welcome) return;
+    const node = overlayRef.current;
+    const focusables = () => Array.from(
+      node.querySelectorAll('button, [href], input, [tabindex]:not([tabindex="-1"])')
+    ).filter(el => !el.disabled && el.offsetParent !== null);
+    const first = focusables()[0];
+    if (first) first.focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); setWelcome(false); return; }
+      if (e.key !== 'Tab') return;
+      const f = focusables();
+      if (!f.length) return;
+      const a = f[0], z = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+      else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+    };
+    node.addEventListener('keydown', onKey);
+    return () => {
+      node.removeEventListener('keydown', onKey);
+      if (wordRef.current) wordRef.current.focus();
+    };
+  }, [welcome]);
+
+  return (
+    <div className="gate">
+      {/* film-grain noise overlay */}
+      <div className="gate-grain" aria-hidden="true" />
+      {/* hairline guide geometry */}
+      <div className="gate-circle" aria-hidden="true" />
+      <div className="gate-centerline" aria-hidden="true" />
+      {/* registration marks on the centerline at both edges */}
+      <GateRegMark side="left" />
+      <GateRegMark side="right" />
+
+      {/* corners → nav */}
+      <GateCorner pos="tl" label="КАТАЛОГ" sub="древо историй"
+        ariaLabel="Каталог — древо историй" onClick={() => go('catalog')} />
+      <GateCorner pos="tr" label="ЛЕНТА" sub="сообщество"
+        ariaLabel="Лента — сообщество" onClick={() => go('feed')} />
+      <GateCorner pos="bl" label="ПРОФИЛЬ" sub="настройки · плагины" arrow
+        ariaLabel="Профиль — настройки и плагины" onClick={() => go('profile')} />
+      <GateCorner pos="br" label="ВЕРСТАК" sub="студия" arrow
+        ariaLabel="Верстак — студия" onClick={() => go('compose')} />
+
+      {/* center: eyebrow + mirrored two-row wordmark (the primary CTA) */}
+      <div className="gate-center">
+        <span className="gate-eyebrow">СОТВОРИ ИСТОРИЮ ВМЕСТЕ</span>
+        <button ref={wordRef} className="gate-word" onClick={() => setWelcome(true)}
+          aria-label="Открыть приветствие WYRM">
+          {/* WYRM reads top-to-bottom: legible "WY" then legible "RM".
+              The reframed "mirror" signature is a faint scaleY(-1) reflection
+              echoed beneath the bottom row (decorative, aria-hidden), so the
+              word stays readable AND keeps the printer's-plate reflection look. */}
+          <span className="gate-word-line">WY</span>
+          <span className="gate-word-line">RM</span>
+          <span className="gate-word-line gate-word-mirror" aria-hidden="true">RM</span>
+        </button>
+      </div>
+
+      {/* black welcome overlay */}
+      {welcome && (
+        <div className="gwelcome" ref={overlayRef} role="dialog" aria-modal="true"
+          aria-label="Добро пожаловать в WYRM">
+          <div className="gwelcome-inner">
+            <p className="gwelcome-greeting">
+              ДОБРО ПОЖАЛОВАТЬ, ДОРОГОЙ <strong>ПОЛЬЗОВАТЕЛЬ</strong>.<br />
+              ЭТО <strong>WYRM</strong> — ЖИВАЯ ПЛОЩАДКА КОЛЛЕКТИВНОГО ПОВЕСТВОВАНИЯ.
+            </p>
+            <div className="gwelcome-actions">
+              <button className="gwelcome-btn" onClick={() => go('home')}>ВОЙТИ В WYRM</button>
+              <button className="gwelcome-btn" onClick={() => setWelcome(false)}>ОСМОТРЕТЬСЯ</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 
 /* ╔══ 05 · Reader + Compose ══╗ */
@@ -2822,141 +2950,6 @@ Object.assign(window, { AuthModal, AccountMenu });
 
 
 
-/* ╔══ 13 · IntroFilm ══╗ */
-/* ============================================================
-   WYRM — Кинематографичная заставка (≤12с, пропускаемая)
-   Древо растёт снизу вверх, ветви прорисовываются, узлы загораются.
-   ============================================================ */
-
-/* стабильный псевдослучайный генератор (сид) — форма дерева не «прыгает» */
-function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-
-function buildTree() {
-  const rng = mulberry32(7);
-  const segs = [], leaves = [];
-  const W = 600, H = 600, baseX = 300, baseY = 600, trunkTop = 430;
-  // тапер ствола→ветви: ширина у основания каждого сегмента
-  const widthOf = (gen) => Math.max(1.3, 34 * Math.pow(0.62, gen));
-  segs.push({ x: baseX, y: baseY, cx: baseX, cy: (baseY + trunkTop) / 2, x2: baseX, y2: trunkTop, gen: 0, len: baseY - trunkTop, w: widthOf(0), w2: widthOf(1) });
-  function grow(x, y, ang, len, gen) {
-    const x2 = x + Math.cos(ang) * len, y2 = y + Math.sin(ang) * len;
-    const mx = (x + x2) / 2, my = (y + y2) / 2;
-    const nx = -(y2 - y), ny = (x2 - x), nl = Math.hypot(nx, ny) || 1;
-    const curve = (rng() - 0.5) * len * 0.55;
-    const cx = mx + nx / nl * curve, cy = my + ny / nl * curve;
-    const chord = Math.hypot(x2 - x, y2 - y);
-    const plen = chord + Math.abs(curve) * 0.9;
-    segs.push({ x, y, cx, cy, x2, y2, gen, len: plen, w: widthOf(gen), w2: widthOf(gen + 1) });
-    if (gen >= 5) { // крона: кластер листьев у кончика (немного — ради производительности)
-      const n = 1 + Math.floor(rng() * 2);
-      for (let i = 0; i < n; i++) leaves.push({ x: x2 + (rng() - 0.5) * 34, y: y2 + (rng() - 0.5) * 34, r: 7 + rng() * 12, gold: rng() > 0.8 });
-      return;
-    }
-    const base = (26 - gen * 1.8) * Math.PI / 180;
-    const jit = () => (rng() - 0.5) * 18 * Math.PI / 180;
-    grow(x2, y2, ang - base + jit(), len * 0.76, gen + 1);
-    grow(x2, y2, ang + base + jit(), len * 0.76, gen + 1);
-    if (gen <= 2 && rng() > 0.45) grow(x2, y2, ang + jit() * 0.5, len * 0.66, gen + 1); // редкая средняя ветвь
-  }
-  grow(baseX, trunkTop, -Math.PI / 2, 120, 1);
-  return { segs, leaves, W, H };
-}
-
-/* ~10-секундная кинематографичная заставка (всё на CSS-анимациях):
-   камера отъезжает и поворачивается по часовой, дерево разрастается на весь
-   экран, появляются слоганы, падают листья, опускаются полупрозрачные панели
-   со статистикой и отзывами; в центре остаётся «W». */
-function IntroFilm({ onDone, onAuth }) {
-  const T = useMemo(buildTree, []);
-  const [finale, setFinale] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setFinale(true), 8600); return () => clearTimeout(t); }, []);
-
-  const SLOGANS = ['Истории, которые пишут вместе.', 'Твоя глава — в общей легенде.', 'Один мир — сотни авторов.'];
-
-  const leaves = useMemo(() => {
-    const r = mulberry32(42);
-    return Array.from({ length: 12 }, () => ({
-      x: r() * 100, s: 7 + r() * 9, delay: 4.6 + r() * 5.5, dur: 6 + r() * 4.5,
-      drift: (r() - 0.5) * 180, gold: r() > 0.72,
-    }));
-  }, []);
-
-  const panels = [
-    { top: '15%', left: '7%', r: -4, delay: 6.0, k: 'соавторов', v: '2 480' },
-    { top: '21%', left: '70%', r: 3, delay: 6.4, k: 'живых историй', v: '320' },
-    { top: '60%', left: '11%', r: 4, delay: 6.8, k: 'ветвей в день', v: '1 200' },
-    { top: '57%', left: '68%', r: -3, delay: 7.2, c: 'Дописал чужую главу — затянуло до утра', who: 'mara.q' },
-    { top: '11%', left: '40%', r: 2, delay: 7.6, c: 'Моя ветвь стала каноном', who: 'grimwarden' },
-  ];
-
-  return (
-    <div className="intro cine" role="dialog" aria-label="Заставка WYRM">
-      <div className="cine-veil" aria-hidden="true" />
-
-      {/* камера-стейдж с деревом (рост — один transform на группе, дёшево для GPU) */}
-      <div className="cine-stage" aria-hidden="true">
-        <div className="cine-canopy-glow" />
-        <svg className="cine-tree" viewBox={`0 0 ${T.W} ${T.H}`} preserveAspectRatio="xMidYMax meet">
-          <g className="cine-grow">
-            {T.leaves.map((n, i) => (
-              <circle key={'l' + i} className="cine-leafnode" cx={n.x} cy={n.y} r={n.r.toFixed(1)}
-                fill={n.gold ? 'var(--gold)' : 'var(--accent)'} />
-            ))}
-            {T.segs.map((s, i) => (
-              <path key={'s' + i} className="twig"
-                d={`M ${s.x} ${s.y} Q ${s.cx.toFixed(1)} ${s.cy.toFixed(1)} ${s.x2.toFixed(1)} ${s.y2.toFixed(1)}`}
-                strokeWidth={s.w.toFixed(1)} />
-            ))}
-          </g>
-        </svg>
-      </div>
-
-      {/* падающие листья */}
-      <div className="cine-leaves" aria-hidden="true">
-        {leaves.map((l, i) => (
-          <span key={i} className="cine-leaf" style={{
-            left: l.x + '%', width: l.s, height: l.s,
-            background: l.gold ? 'var(--gold)' : 'var(--accent)',
-            '--drift': l.drift + 'px', animationDuration: l.dur + 's', animationDelay: l.delay + 's',
-          }} />
-        ))}
-      </div>
-
-      {/* полупрозрачные панели со статистикой и отзывами */}
-      <div className="cine-panels" aria-hidden="true">
-        {panels.map((p, i) => (
-          <div key={i} className="cine-panel" style={{ top: p.top, left: p.left, '--r': p.r + 'deg', animationDelay: p.delay + 's' }}>
-            {p.v
-              ? <React.Fragment><span className="display cine-panel-v">{p.v}</span><span className="mono cine-panel-k">{p.k}</span></React.Fragment>
-              : <React.Fragment><span className="serif-italic cine-panel-c">«{p.c}»</span><span className="mono cine-panel-k">@{p.who}</span></React.Fragment>}
-          </div>
-        ))}
-      </div>
-
-      {/* центр: W + слоганы + финал */}
-      <div className="cine-center">
-        <div className="cine-w">W</div>
-        <div className="cine-slogans">
-          {SLOGANS.map((s, i) => (
-            <div key={i} className="cine-slogan display" style={{ animationDelay: (1.6 + i * 2.2) + 's' }}>{s}</div>
-          ))}
-        </div>
-        <div className={'cine-finale' + (finale ? ' in' : '')}>
-          <div className="mono" style={{ color: 'var(--ink-3)', letterSpacing: '.26em', marginBottom: 18 }}>WYRM · сотвори историю вместе</div>
-          <div className="intro-cta">
-            <button className="btn btn-primary" onClick={() => onAuth()}><Icon name="quill" size={16} />Войти и начать</button>
-            <button className="btn btn-ghost" onClick={onDone}>Продолжить как гость</button>
-          </div>
-        </div>
-      </div>
-
-      <button className="intro-skip mono" onClick={onDone}>Пропустить <Icon name="arrow" size={13} /></button>
-      <div className="intro-progress"><div className="cine-bar" /></div>
-    </div>
-  );
-}
-
-Object.assign(window, { IntroFilm });
 
 
 
@@ -3775,21 +3768,17 @@ function App() {
   const togglePlugin = (id) => setPlugins(p => ({ ...p, [id]: !p[id] }));
   const addCustom = (mf) => { setCustoms(c => [...c, mf]); setPlugins(p => ({ ...p, [mf.id]: true })); };
 
-  // ---- auth + intro ----
+  // ---- auth ----
   const savedUser = useRef(loadUser()).current;
   const [user, setUser] = useState(savedUser);
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login');
-  const [showIntro, setShowIntro] = useState(() => {
-    try { return !localStorage.getItem('wyrm.introSeen') && !savedUser; } catch (e) { return false; }
-  });
   useEffect(() => {
     if (user) localStorage.setItem('wyrm.user', JSON.stringify(user));
     else localStorage.removeItem('wyrm.user');
   }, [user]);
   // Restore an existing session (real Supabase session, or the cached user).
   useEffect(() => { store.currentUser().then(u => { if (u) setUser(u); }); }, []);
-  const finishIntro = () => { try { localStorage.setItem('wyrm.introSeen', '1'); } catch (e) {} setShowIntro(false); };
   const doAuth = (u) => { setUser(u); setAuthOpen(false); };
   const openAuth = (mode) => { setAuthMode(mode || 'login'); setAuthOpen(true); };
 
@@ -3807,7 +3796,7 @@ function App() {
 
   const go = (r, payload) => { if (payload) setCtx(c => ({ ...c, ...payload })); setRoute(r); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
-  const NAV = [['landing', 'Главная'], ['feed', 'Лента'], ['catalog', 'Каталог'], ['communities', 'Сообщества'], ['reader', 'Древо']];
+  const NAV = [['home', 'Главная'], ['feed', 'Лента'], ['catalog', 'Каталог'], ['communities', 'Сообщества'], ['reader', 'Древо']];
   const STUDIO = [
     ['merge', '01 · Слияние', 'branch'],
     ['lore', '02 · Кодекс мира', 'eye'],
@@ -3822,6 +3811,7 @@ function App() {
     <React.Fragment>
       <div className="atmos" style={{ opacity: atmos ? 1 : 0 }} />
 
+      {route !== 'landing' && (<React.Fragment>
       <header className="nav wrap" style={{ width: 'min(100% - 48px, var(--maxw))' }}>
         <div className="brand" onClick={() => go('landing')}>
           <span className="logo"><span className="w">W</span>YRM</span>
@@ -3877,14 +3867,15 @@ function App() {
             : <button className="btn btn-primary" style={{ margin: '12px 0 4px', justifyContent: 'center' }} onClick={() => { openAuth('login'); setMenuOpen(false); }}>Войти</button>}
         </div>
       </div>
+      </React.Fragment>)}
 
-      {showIntro && <IntroFilm onDone={finishIntro} onAuth={() => { finishIntro(); openAuth('register'); }} />}
       <AuthModal open={authOpen} mode={authMode} setMode={setAuthMode} onClose={() => setAuthOpen(false)} onAuth={doAuth} />
 
       <PluginHost state={plugins} customs={customs} go={go} />
 
       <main>
-        {route === 'landing' && <Landing go={go} />}
+        {route === 'landing' && <Gate go={go} />}
+        {route === 'home' && <Landing go={go} />}
         {route === 'catalog' && <Catalog go={go} />}
         {route === 'reader' && <Reader go={go} ctx={ctx} setCtx={setCtx} />}
         {route === 'compose' && <Compose go={go} ctx={ctx} setCtx={setCtx} />}
@@ -3900,23 +3891,24 @@ function App() {
         {route === 'profile' && <Profile go={go} user={user} />}
       </main>
 
+      {route !== 'landing' && (
       <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18, position: 'relative', zIndex: 1 }}>
         <div className="brand"><span className="logo" style={{ fontSize: '1.2rem' }}><span className="w">W</span>YRM</span></div>
         <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', maxWidth: '36ch' }}>Площадка коллективного повествования. Каждая история живёт, пока её пишут.</p>
         <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{theme === 'night' ? 'мир · Ночь' : 'мир · Манускрипт'}</div>
       </footer>
+      )}
 
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)}
         {...{ theme, setTheme, accent, setAccent, font, setFont, scale, setScale, atmos, setAtmos }}
         plugins={plugins} togglePlugin={togglePlugin} enabledPlugins={enabledPlugins}
-        openStore={() => { setSettingsOpen(false); go('plugins'); }}
-        replayIntro={() => { setSettingsOpen(false); setShowIntro(true); }} />
+        openStore={() => { setSettingsOpen(false); go('plugins'); }} />
     </React.Fragment>
   );
 }
 
 /* ---------------- SETTINGS DRAWER (full customization) ---------------- */
-function SettingsDrawer({ open, onClose, theme, setTheme, accent, setAccent, font, setFont, scale, setScale, atmos, setAtmos, plugins, togglePlugin, enabledPlugins, openStore, replayIntro }) {
+function SettingsDrawer({ open, onClose, theme, setTheme, accent, setAccent, font, setFont, scale, setScale, atmos, setAtmos, plugins, togglePlugin, enabledPlugins, openStore }) {
   const quick = ['embers', 'progress', 'wordhud', 'dice', 'zen'];
   const byId = Object.fromEntries(PLUGIN_REGISTRY.map(p => [p.id, p]));
   return (
@@ -4002,12 +3994,6 @@ function SettingsDrawer({ open, onClose, theme, setTheme, accent, setAccent, fon
             </div>
             <button className="btn btn-ghost btn-sm" onClick={openStore} style={{ width: '100%', justifyContent: 'center' }}>
               <Icon name="blocks" size={14} />Магазин и конструктор расширений
-            </button>
-          </Field>
-
-          <Field label="Заставка" hint="кинематографичное интро">
-            <button className="btn btn-ghost btn-sm" onClick={replayIntro} style={{ width: '100%', justifyContent: 'center' }}>
-              <Icon name="flame" size={14} />Смотреть заставку заново
             </button>
           </Field>
 
