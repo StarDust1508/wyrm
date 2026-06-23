@@ -9,3 +9,6 @@ dist
 extracted/
 app-source.html
 WYRM-standalone.html
+
+# realtime microservice deps
+realtime/node_modules

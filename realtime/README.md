@@ -59,9 +59,11 @@ whether `PB_URL` is set:
    rather than trusting an unverified token.
 
 2. **`PB_URL` unset → decode mode (dev / scaffold only).**
-   The JWT payload is base64url-decoded and accepted if `exp` is in the future.
-   **The signature is not checked** — a forged token with a future `exp` would
-   pass. Use only for local development.
+   The JWT payload is base64url-decoded and accepted only if it carries an
+   `exp` claim that is in the future. **The signature is not checked** — a
+   forged token with a future `exp` would pass. A token **without** an `exp`
+   claim is rejected (an unverified, never-expiring token must not be trusted).
+   Use only for local development.
 
 > **TODO (prod hardening):** to avoid a network round-trip per connection,
 > fetch the PocketBase signing key / JWKS once at boot and verify the signature
