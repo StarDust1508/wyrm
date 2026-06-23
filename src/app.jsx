@@ -904,6 +904,9 @@ function Compose({ go, ctx, setCtx }) {
   const [mode, setMode] = useState(ctx.forkFrom ? 'fork' : 'newbook'); // 'newbook' | 'fork'
   const [synopsis, setSynopsis] = useState('');
   const [bookId, setBookId] = useState(null);
+  const [community, setCommunity] = useState(ctx.community || '');
+  const [communities, setCommunities] = useState([]);
+  useEffect(() => { let on = true; store.listCommunities().then(r => { if (on) setCommunities(r.communities || []); }); return () => { on = false; }; }, []);
   const plain = htmlToText(body);
   const words = plain ? plain.split(/\s+/).length : 0;
   const allTags = Object.keys(TAGS);
@@ -920,7 +923,7 @@ function Compose({ go, ctx, setCtx }) {
     const author = (me && (me.handle || me.name)) || 'аноним';
     const id = slug(title) + '-' + Date.now().toString(36).slice(-4);
     const story = { id, slug: id, title: title.trim(), author, synopsis: synopsis.trim() || (text.length > 140 ? text.slice(0, 140) + '…' : text),
-      contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false };
+      contributors: 1, branches: 1, tags: tags.length ? tags : ['dark-fantasy'], hot: false, community: community || null };
     const root = { id: id + '-root', parent: null, story: id, title: 'Глава 1', author,
       canon: true, score: 0.5, votes: 0, words, tags: story.tags,
       excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, html: cleanHtml(body), chars: {} };
@@ -1002,6 +1005,14 @@ function Compose({ go, ctx, setCtx }) {
             <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Круг жанров книги</div>
             <GenreWheel selected={tags} onToggle={toggleTag} multi size={236} />
             {tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>{tags.map(t => <Tag key={t} id={t} />)}</div>}
+          </div>
+          <div className="card" style={{ padding: 18 }}>
+            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Сообщество (необязательно)</div>
+            <select value={community} onChange={e => setCommunity(e.target.value)}
+              className="mono" style={{ width: '100%', background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 4, padding: '8px 10px', fontSize: '.72rem' }}>
+              <option value="">— без сообщества —</option>
+              {communities.map(cc => <option key={cc.id} value={cc.id}>{cc.name}</option>)}
+            </select>
           </div>
           <button className="btn btn-primary" onClick={publishBook} disabled={!title.trim() || !plain}
             style={{ justifyContent: 'center', opacity: title.trim() && plain ? 1 : .5 }}>
@@ -2349,6 +2360,7 @@ function AccountMenu({ user, onLogout, go }) {
           <div style={{ fontWeight: 600, fontSize: '.86rem' }}>{user.name}</div>
           <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>@{user.handle}</div>
         </div>
+        <button className="studio-item" onClick={() => { go('profile'); setOpen(false); }}><Icon name="users" size={15} /><span>Профиль</span></button>
         <button className="studio-item" onClick={() => { go('compose'); setOpen(false); }}><Icon name="quill" size={15} /><span>Мои ветки</span></button>
         <button className="studio-item" onClick={() => { go('cut'); setOpen(false); }}><Icon name="fork" size={15} /><span>Моя версия</span></button>
         <button className="studio-item" onClick={() => { onLogout(); setOpen(false); }}><Icon name="arrowL" size={15} /><span>Выйти</span></button>
@@ -2538,6 +2550,7 @@ function useFeed() {
 
   const addPost = async (p) => { const np = await store.addPost(p); setPosts(l => [np, ...l]); return np; };
   const repostPost = async (post, author) => { const np = await store.repost(post, author); setPosts(l => [np, ...l]); return np; };
+  const removePost = async (id) => { setPosts(l => l.filter(p => p.id !== id)); try { await store.deletePost(id); } catch (e) {} };
 
   // optimistic like/save toggle
   const flip = (p, kind) => kind === 'save'
@@ -2548,7 +2561,7 @@ function useFeed() {
     try { await store.toggleReact(id, kind); }
     catch (e) { setPosts(l => l.map(p => p.id === id ? flip(p, kind) : p)); } // revert
   };
-  return { posts, loading, addPost, repostPost, toggleReact };
+  return { posts, loading, addPost, repostPost, toggleReact, removePost };
 }
 
 /* поле ввода нового поста */
@@ -2604,12 +2617,13 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
 }
 
 /* карточка поста ленты — лайк / репост / комментарии / сохранить (единая модель) */
-function PostCard({ post, user, onReact, onRepost, go, communityName }) {
+function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName }) {
   const k = FEED_KINDS[post.kind] || FEED_KINDS.post;
   const [openC, setOpenC] = useState(false);
   const [comments, setComments] = useState(null);
   const [ctext, setCtext] = useState('');
   const [reposted, setReposted] = useState(false);
+  const canModerate = user && onDelete && (user.role === 'moderator' || post.author === (user.handle || user.name));
 
   const toggleComments = async () => {
     const next = !openC; setOpenC(next);
@@ -2644,6 +2658,12 @@ function PostCard({ post, user, onReact, onRepost, go, communityName }) {
           <button onClick={() => go && go('community', { communityId: post.community })}
             className="tag tag-btn" style={{ fontSize: '.5rem', flex: '0 0 auto' }} title="Перейти в сообщество">
             <Icon name="users" size={10} />{communityName}
+          </button>
+        )}
+        {canModerate && (
+          <button className="icon-btn" style={{ flex: '0 0 auto', width: 28, height: 28 }} title={user.role === 'moderator' && post.author !== (user.handle || user.name) ? 'Удалить (модератор)' : 'Удалить'}
+            onClick={() => { if (confirm('Удалить пост?')) onDelete(post.id); }}>
+            <Icon name="x" size={14} />
           </button>
         )}
       </div>
@@ -2829,7 +2849,7 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
 /* ---------------- ЛЕНТА ---------------- */
 function Feed({ go, user }) {
   const ref = useReveal();
-  const { posts, addPost, repostPost, toggleReact } = useFeed();
+  const { posts, addPost, repostPost, toggleReact, removePost } = useFeed();
   const { communities } = useCommunities();
   const comName = (id) => (communities.find(c => c.id === id) || {}).name;
   const [filter, setFilter] = useState('all');
@@ -2855,7 +2875,7 @@ function Feed({ go, user }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         {list.length === 0
           ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '40px 0' }}>Пока тут тихо. Напиши первым.</p>
-          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} go={go} communityName={comName(p.community)} />)}
+          : list.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} communityName={comName(p.community)} />)}
       </div>
     </div>
   );
@@ -3010,14 +3030,18 @@ function CommunityCreate({ user, onClose, onCreate, go }) {
 function CommunityDetail({ go, ctx, user }) {
   const ref = useReveal();
   const { communities, joined, toggleJoin } = useCommunities();
-  const { posts, addPost, repostPost, toggleReact } = useFeed();
+  const { posts, addPost, repostPost, toggleReact, removePost } = useFeed();
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
-  const { STORIES } = window.WYRM;
+  const [allStories, setAllStories] = useState(() => (window.WYRM.STORIES || []).slice());
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on && s && s.length) setAllStories(s); }); return () => { on = false; }; }, []);
   const c = communities.find(x => x.id === ctx.communityId) || communities[0];
   if (!c) return null;
   const isJoined = joined.includes(c.id);
-  const stories = STORIES.filter(s => (c.stories || []).includes(s.id));
-  const feed = posts.filter(p => p.community === c.id || (p.ref && (c.stories || []).includes(p.ref.story)));
+  // книги сообщества: из сид-списка ИЛИ с явной связью story.community
+  const stories = allStories.filter(s => (c.stories || []).includes(s.id) || s.community === c.id);
+  const feed = posts.filter(p => p.community === c.id || (p.ref && stories.some(s => s.id === p.ref.story)));
+  const canManage = user && (user.role === 'moderator' || c.owner === (user.handle || user.name));
+  const removeCommunity = async () => { if (confirm('Удалить сообщество?')) { await store.deleteCommunity(c.id); go('communities'); } };
 
   return (
     <div className="view" ref={ref}>
@@ -3043,16 +3067,26 @@ function CommunityDetail({ go, ctx, user }) {
                 ))}
               </div>
             </div>
-            <button className={'btn ' + (isJoined ? 'btn-ghost' : 'btn-primary')} onClick={() => toggleJoin(c.id)}>
-              {isJoined ? <React.Fragment><Icon name="check" size={15} />Вы участник</React.Fragment> : <React.Fragment><Icon name="plus" size={15} />Вступить</React.Fragment>}
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+              <button className={'btn ' + (isJoined ? 'btn-ghost' : 'btn-primary')} onClick={() => toggleJoin(c.id)}>
+                {isJoined ? <React.Fragment><Icon name="check" size={15} />Вы участник</React.Fragment> : <React.Fragment><Icon name="plus" size={15} />Вступить</React.Fragment>}
+              </button>
+              {canManage && (
+                <button className="mono path-crumb" onClick={removeCommunity} style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>
+                  <Icon name="x" size={12} /> удалить сообщество
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         {/* истории сообщества */}
-        {stories.length > 0 && (
-          <section style={{ marginBottom: 40 }}>
-            <h2 className="display" style={{ fontSize: '1.6rem', marginBottom: 16, borderTop: 'var(--rule-style)', paddingTop: 18 }}>Истории сообщества</h2>
+        <section style={{ marginBottom: 40 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, borderTop: 'var(--rule-style)', paddingTop: 18, marginBottom: 16 }}>
+              <h2 className="display" style={{ fontSize: '1.6rem' }}>Истории сообщества</h2>
+              {user && <button className="btn btn-ghost btn-sm" onClick={() => go('compose', { newBook: true, forkFrom: null, community: c.id })}><Icon name="plus" size={14} />Книга в сообществе</button>}
+            </div>
+            {stories.length === 0 && <p className="mono" style={{ color: 'var(--ink-3)', marginBottom: 8 }}>Пока нет историй. {user ? 'Создай первую.' : ''}</p>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 20 }}>
               {stories.map(s => (
                 <button key={s.id} className="story-card card" onClick={() => go('reader', { story: s.id })} style={{ padding: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -3063,8 +3097,7 @@ function CommunityDetail({ go, ctx, user }) {
                 </button>
               ))}
             </div>
-          </section>
-        )}
+        </section>
 
         {/* обсуждения сообщества */}
         <section>
@@ -3074,7 +3107,7 @@ function CommunityDetail({ go, ctx, user }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
             {feed.length === 0
               ? <p className="mono" style={{ color: 'var(--ink-3)', textAlign: 'center', padding: '30px 0' }}>Будь первым, кто начнёт разговор здесь.</p>
-              : feed.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} go={go} />)}
+              : feed.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
           </div>
         </section>
       </div>
@@ -3082,7 +3115,90 @@ function CommunityDetail({ go, ctx, user }) {
   );
 }
 
-Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate, GenreWheel, RichEditor, htmlToText });
+/* ---------------- ПРОФИЛЬ ---------------- */
+function Profile({ go, user }) {
+  const ref = useReveal();
+  const { posts, toggleReact, repostPost, removePost } = useFeed();
+  const { communities, joined } = useCommunities();
+  const [stories, setStories] = useState([]);
+  const [tab, setTab] = useState('books');
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on) setStories(s || []); }); return () => { on = false; }; }, []);
+  if (!user) {
+    return (
+      <div className="view wrap" style={{ padding: 'clamp(40px,8vh,90px) 0 90px', textAlign: 'center' }}>
+        <h1 className="display" style={{ fontSize: 'clamp(2rem,5vw,3rem)', marginBottom: 16 }}>Профиль</h1>
+        <p className="serif-italic" style={{ color: 'var(--ink-2)', marginBottom: 24 }}>Войди, чтобы увидеть свои книги, посты и сообщества.</p>
+        <button className="btn btn-primary" onClick={() => go('landing')}>На главную</button>
+      </div>
+    );
+  }
+  const handle = user.handle || user.name;
+  const myStories = stories.filter(s => s.author === handle);
+  const myPosts = posts.filter(p => p.author === handle);
+  const myCommunities = communities.filter(c => joined.includes(c.id));
+  const doRepost = (post) => repostPost(post, handle);
+  const stat = (n, l) => (<div><div className="display" style={{ fontSize: '1.6rem' }}>{n}</div><div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{l}</div></div>);
+  const tabs = [['books', 'Книги · ' + myStories.length], ['posts', 'Посты · ' + myPosts.length], ['communities', 'Сообщества · ' + myCommunities.length]];
+
+  return (
+    <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
+      <div className="reveal card framed" style={{ padding: 'clamp(22px,3vw,34px)', marginBottom: 30, display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Avatar name={handle} size={72} />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h1 className="display" style={{ fontSize: 'clamp(1.8rem,4vw,2.8rem)' }}>{user.name || handle}</h1>
+            {user.role === 'moderator' && <span className="tag" data-active="true" style={{ background: 'var(--gold)', color: 'var(--accent-ink)' }}>модератор</span>}
+          </div>
+          <div className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', marginTop: 4 }}>@{handle}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
+          {stat(user.reputation || 0, 'репутация')}
+          {stat(myStories.length, 'книг')}
+          {stat(myPosts.length, 'постов')}
+        </div>
+      </div>
+
+      <div className="reveal" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: 'var(--rule-style)', paddingBottom: 12, marginBottom: 26 }}>
+        {tabs.map(([k, l]) => <button key={k} className="nav-link" data-active={tab === k} onClick={() => setTab(k)} style={{ fontSize: '.84rem' }}>{l}</button>)}
+      </div>
+
+      {tab === 'books' && (
+        myStories.length === 0
+          ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Ты ещё не написал ни одной книги. <button className="path-crumb" style={{ color: 'var(--accent)' }} onClick={() => go('compose', { newBook: true, forkFrom: null })}>Начать книгу →</button></p>
+          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 20 }}>
+              {myStories.map(s => (
+                <button key={s.id} className="story-card card" onClick={() => go('reader', { story: s.id })} style={{ padding: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <h3 className="display" style={{ fontSize: '1.2rem' }}>{s.title}</h3>
+                  <p style={{ color: 'var(--ink-2)', fontSize: '.86rem' }}>{s.synopsis}</p>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{(s.tags || []).map(t => <Tag key={t} id={t} />)}</div>
+                </button>
+              ))}
+            </div>
+      )}
+      {tab === 'posts' && (
+        myPosts.length === 0
+          ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Постов пока нет.</p>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 720 }}>
+              {myPosts.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
+            </div>
+      )}
+      {tab === 'communities' && (
+        myCommunities.length === 0
+          ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Ты пока не вступил ни в одно сообщество. <button className="path-crumb" style={{ color: 'var(--accent)' }} onClick={() => go('communities')}>Найти →</button></p>
+          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 18 }}>
+              {myCommunities.map(c => (
+                <button key={c.id} className="story-card card" onClick={() => go('community', { communityId: c.id })} style={{ padding: 16, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <h3 className="display" style={{ fontSize: '1.15rem' }}>{c.name}</h3>
+                  <p style={{ color: 'var(--ink-2)', fontSize: '.84rem' }}>{c.blurb}</p>
+                </button>
+              ))}
+            </div>
+      )}
+    </div>
+  );
+}
+
+Object.assign(window, { Feed, Communities, CommunityDetail, CommunityCreate, GenreWheel, RichEditor, htmlToText, Profile });
 
 /* ╔══ 14 · App shell ══╗ */
 /* ============================================================
@@ -3219,6 +3335,7 @@ function App() {
           {user
             ? <React.Fragment>
                 <div className="mobile-menu-label">@{user.handle}</div>
+                <button className="mobile-link" onClick={() => { go('profile'); setMenuOpen(false); }}><Icon name="users" size={15} />Профиль</button>
                 <button className="mobile-link" onClick={() => { go('compose'); setMenuOpen(false); }}><Icon name="quill" size={15} />Мои ветки</button>
                 <button className="mobile-link" onClick={async () => { await store.signOut(); setUser(null); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Выйти</button>
               </React.Fragment>
@@ -3245,6 +3362,7 @@ function App() {
         {route === 'feed' && <Feed go={go} user={user} />}
         {route === 'communities' && <Communities go={go} user={user} />}
         {route === 'community' && <CommunityDetail go={go} ctx={ctx} user={user} />}
+        {route === 'profile' && <Profile go={go} user={user} />}
       </main>
 
       <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18, position: 'relative', zIndex: 1 }}>

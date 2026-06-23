@@ -82,9 +82,10 @@ export async function currentUser() {
     if (!pb.authStore.isValid) return null;
     const r = authRecord(pb); if (!r) return null;
     const handle = r.handle || (r.email || 'автор').split('@')[0];
-    return { id: r.id, email: r.email, name: r.name || handle, handle };
+    return { id: r.id, email: r.email, name: r.name || handle, handle, role: r.role || 'user', reputation: r.reputation || 0 };
   }
-  return load('wyrm.user', null);
+  const u = load('wyrm.user', null);
+  return u ? { role: 'user', reputation: 0, ...u } : null;
 }
 export async function signUp(email, password, name) {
   const handle = (name || email.split('@')[0]).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '_');
@@ -94,7 +95,7 @@ export async function signUp(email, password, name) {
     await pb.collection('users').authWithPassword(email, password);
     return (await currentUser()) || { name: name || handle, email, handle };
   }
-  const u = { name: name || handle, email, handle }; save('wyrm.user', u); return u;
+  const u = { name: name || handle, email, handle, role: demoRole(email), reputation: 0 }; save('wyrm.user', u); return u;
 }
 export async function signIn(email, password) {
   if (enabled) {
@@ -103,8 +104,10 @@ export async function signIn(email, password) {
     return await currentUser();
   }
   const handle = email.split('@')[0].toLowerCase().replace(/[^a-zа-я0-9]+/gi, '_');
-  const u = { name: handle, email, handle }; save('wyrm.user', u); return u;
+  const u = { name: handle, email, handle, role: demoRole(email), reputation: 0 }; save('wyrm.user', u); return u;
 }
+// демо: чтобы можно было протестировать модерацию — почта вида mod@… делает модератором
+function demoRole(email) { return /^mod(erator)?@/i.test(email || '') ? 'moderator' : 'user'; }
 export async function signOut() {
   if (enabled) { const pb = await pbClient(); pb.authStore.clear(); }
   localStorage.removeItem('wyrm.user');
@@ -139,7 +142,18 @@ export async function listPosts() {
     }
     return rows.map(p => mapPost(p, liked, saved));
   }
-  return decorate(localPosts(), load('wyrm.likes', {}), load('wyrm.comments', {}));
+  const hidden = new Set(load('wyrm.hiddenPosts', []));
+  return decorate(localPosts().filter(p => !hidden.has(p.id)), load('wyrm.likes', {}), load('wyrm.comments', {}));
+}
+
+// удалить пост (модератор или автор). В демо — скрываем (сид нельзя удалить физически).
+export async function deletePost(id) {
+  if (enabled) { const pb = await pbClient(); await pb.collection('posts').delete(id); return true; }
+  const mine = load('wyrm.feed', []);
+  save('wyrm.feed', mine.filter(p => p.id !== id));
+  const hidden = load('wyrm.hiddenPosts', []);
+  if (!hidden.includes(id)) save('wyrm.hiddenPosts', [...hidden, id]);
+  return true;
 }
 
 export async function addPost(p) {
@@ -229,7 +243,9 @@ export async function listCommunities() {
     if (me) { const m = await pb.collection('memberships').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) }); joined = m.map(x => x.community); }
     return { communities: rows.map(mapCommunity), joined };
   }
-  return { communities: [...load('wyrm.communities', []), ...COMMUNITIES_SEED], joined: load('wyrm.memberships', []) };
+  const hidden = new Set(load('wyrm.hiddenCommunities', []));
+  const all = [...load('wyrm.communities', []), ...COMMUNITIES_SEED].filter(c => !hidden.has(c.id));
+  return { communities: all, joined: load('wyrm.memberships', []) };
 }
 
 export async function createCommunity(cm, owner) {
@@ -269,6 +285,16 @@ export async function toggleJoin(id) {
   const next = j.includes(id) ? j.filter(x => x !== id) : [...j, id];
   save('wyrm.memberships', next);
   return next.includes(id);
+}
+
+// удалить сообщество (владелец или модератор). В демо — скрываем сид / удаляем своё.
+export async function deleteCommunity(id) {
+  if (enabled) { const pb = await pbClient(); await pb.collection('communities').delete(id); return true; }
+  const mine = load('wyrm.communities', []);
+  save('wyrm.communities', mine.filter(c => c.id !== id));
+  const hidden = load('wyrm.hiddenCommunities', []);
+  if (!hidden.includes(id)) save('wyrm.hiddenCommunities', [...hidden, id]);
+  return true;
 }
 
 /* ============================================================
