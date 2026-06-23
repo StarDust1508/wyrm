@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import DOMPurify from 'dompurify'
 import * as store from './lib/store.js'
 import * as diff from './lib/diff.js'
+import * as consistency from './lib/consistency.js'
+import * as realtime from './lib/realtime.js'
 
 // Strict allowlist sanitizer for chapter HTML (editor + imported .docx).
 // Kills <script>, event handlers, javascript: URLs, styles — anything that
@@ -1531,173 +1533,206 @@ Object.assign(window, { Merge });
    WYRM · #2 Lore Graph — живой кодекс + проверка непротиворечивости
    ============================================================ */
 
-const LORE_NODES = [
-  { id: 'keira', label: 'Кейра Веран', type: 'char', x: 360, y: 70 },
-  { id: 'vale',  label: 'Вэйл',        type: 'char', x: 150, y: 180 },
-  { id: 'archon',label: 'Архонт Сольм', type: 'char', x: 560, y: 180 },
-  { id: 'wyrm',  label: 'Старый Вирм',  type: 'char', x: 360, y: 300 },
-  { id: 'arcadia', label: 'Аркадия',   type: 'place', x: 180, y: 360 },
-  { id: 'citadel', label: 'Цитадель',  type: 'place', x: 600, y: 330 },
-  { id: 'order', label: 'Орден пепла',  type: 'faction', x: 70, y: 90 },
-  { id: 'blade', label: 'Клинок зари',  type: 'item', x: 470, y: 410 },
-];
-const LORE_EDGES = [
-  ['keira', 'vale', 'брат'], ['keira', 'wyrm', 'наездница'], ['keira', 'order', 'клятва'],
-  ['archon', 'citadel', 'владыка'], ['keira', 'archon', 'торг'], ['vale', 'arcadia', 'родом из'],
-  ['wyrm', 'arcadia', 'спит под'], ['keira', 'blade', 'носит'], ['archon', 'order', 'преследует'],
-];
-const LORE_TYPES = {
-  char:    { hue: 168, label: 'Персонаж' },
-  place:   { hue: 240, label: 'Место' },
-  faction: { hue: 35,  label: 'Фракция' },
-  item:    { hue: 86,  label: 'Предмет' },
+// Кураторские подписи связей для флагмана (ключ — отсортированная пара id).
+// Для остальных пар берётся «вместе · N гл.» из числа общих глав.
+const LORE_RELATIONS = {
+  'archon|keira': 'торг',
+  'archon|vale': 'враги',
+  'archon|wyrm': 'охотится',
+  'keira|vale': 'брат и сестра',
+  'keira|wyrm': 'наездница',
+  'vale|wyrm': 'свидетель',
 };
-const LORE_BRANCHES = {
-  canon: { label: 'Канон · «Цитадель молчания»',
-    status: { keira: 'alive', vale: 'alive', archon: 'changed', wyrm: 'alive' }, issues: [] },
-  dark:  { label: 'Тёмная ветвь · «Корона из костей»',
-    status: { keira: 'changed', vale: 'dead', archon: 'dead', wyrm: 'alive' },
-    issues: [{ sev: 'low', t: 'Хронология', d: 'Орден пепла упомянут после гибели Архонта — проверь, кто им теперь правит.' }] },
-  draft: { label: 'Черновик @nyx___ · не опубликован',
-    status: { keira: 'alive', vale: 'alive', archon: 'changed', wyrm: 'alive' },
-    issues: [
-      { sev: 'high', t: 'Конфликт статуса', d: 'Кейра помечена «Изменена» в тёмной ветви, но в черновике ведёт себя как прежняя. Развести линии?' },
-      { sev: 'mid', t: 'Потерянный предмет', d: 'Клинок зари выкован в гл. A1a, но в черновике появляется раньше своего создания.' },
-    ] },
-};
+const KIND_LABEL = { revival: 'Воскрешение', soft: 'Неувязка' };
 
 function LoreGraph({ go }) {
   const ref = useReveal();
-  const [branch, setBranch] = useState('draft');
-  const [sel, setSel] = useState('keira');
-  const [handled, setHandled] = useState({}); // 'resolved' | 'ignored', keyed by branch:index
-  const B = LORE_BRANCHES[branch];
-  const issueKey = (i) => branch + ':' + i;
-  const visibleIssues = B.issues.map((iss, i) => ({ iss, i })).filter(x => handled[issueKey(x.i)] !== 'ignored');
-  const unresolved = visibleIssues.filter(x => handled[issueKey(x.i)] !== 'resolved').length;
-  const setIssue = (i, v) => setHandled(h => ({ ...h, [issueKey(i)]: v }));
-  const byId = Object.fromEntries(LORE_NODES.map(n => [n.id, n]));
-  const neighbors = new Set(LORE_EDGES.filter(e => e[0] === sel || e[1] === sel).flatMap(e => [e[0], e[1]]));
-  const node = byId[sel];
-  const appearances = { keira: ['root', 'A', 'A1', 'A1a', 'B1'], vale: ['A1', 'A2', 'B1'], archon: ['A1a', 'B1'], wyrm: ['root', 'B1', 'B2'], arcadia: ['root', 'B1'], citadel: ['A1a'], order: ['A'], blade: ['A1a'] }[sel] || [];
+  const { CHARACTERS, STORIES } = window.WYRM;
+  const [storyId, setStoryId] = useState('ashes');
+  const [sel, setSel] = useState(null);
+  const [ignored, setIgnored] = useState(() => store.getLoreIgnored());
+  const [showHidden, setShowHidden] = useState(false);
+
+  // только истории, где у глав отмечены судьбы героев (есть что проверять)
+  const stories = (STORIES || []).filter(s => consistency.charactersIn(window.WYRM.nodesFor(s.id)).length);
+  const storyList = stories.length ? stories : (STORIES || []);
+
+  const nodes = window.WYRM.nodesFor(storyId);
+  const overlay = store.voteOverlay();
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  const charIds = consistency.charactersIn(nodes);
+  const latest = consistency.latestStatuses(nodes, overlay);
+  const edges = consistency.coAppearEdges(nodes);
+  const cur = charIds.includes(sel) ? sel : charIds[0];
+
+  // круговая раскладка персонажей
+  const W = 640, H = 440, cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 78;
+  const layout = {};
+  charIds.forEach((id, i) => {
+    if (charIds.length === 1) { layout[id] = { x: cx, y: cy }; return; }
+    const a = -Math.PI / 2 + i * 2 * Math.PI / charIds.length;
+    layout[id] = { x: cx + R * Math.cos(a), y: cy + R * Math.sin(a) };
+  });
+  const neighbors = new Set(edges.filter(e => e.a === cur || e.b === cur).flatMap(e => [e.a, e.b]));
+  const hueFor = (id) => (CHAR_STATUS[latest[id]] || CHAR_STATUS.alive).hue;
+  const nameFor = (id) => (CHARACTERS[id] && CHARACTERS[id].name) || id;
+  const edgeLabel = (e) => { const k = [e.a, e.b].sort().join('|'); return LORE_RELATIONS[k] || `вместе · ${e.n} гл.`; };
+
+  const allIssues = consistency.findContradictions(nodes, overlay, CHARACTERS);
+  const issues = allIssues.filter(x => !ignored.includes(x.id));
+  const hiddenCount = allIssues.length - issues.length;
+  const appearances = cur ? consistency.appearancesOf(cur, nodes, overlay) : [];
+
+  const doIgnore = (id) => { store.ignoreLoreIssue(id); setIgnored(store.getLoreIgnored()); };
+  const doUnignore = (id) => { store.unignoreLoreIssue(id); setIgnored(store.getLoreIgnored()); };
+  const goFix = (iss) => go('reader', { story: storyId, node: iss.toId });
+  const curStory = (STORIES || []).find(s => s.id === storyId) || {};
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>
       <div className="reveal" style={{ marginBottom: 16 }}>
         <div className="eyebrow" style={{ marginBottom: 12 }}>Механика 02 · Lore Graph — кодекс мира</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 14 }}>
-          <h1 className="display" style={{ fontSize: 'clamp(1.9rem,4.4vw,3rem)' }}>Кодекс «Пепла Аркадии»</h1>
+          <h1 className="display" style={{ fontSize: 'clamp(1.9rem,4.4vw,3rem)' }}>Кодекс «{curStory.title || 'Древо'}»</h1>
           <div style={{ display: 'flex', gap: 4, border: '1px solid var(--line)', borderRadius: 3, padding: 3, flexWrap: 'wrap' }}>
-            {Object.entries(LORE_BRANCHES).map(([k, v]) => (
-              <button key={k} className="btn btn-sm" onClick={() => setBranch(k)}
-                style={{ background: branch === k ? 'var(--bg-3)' : 'transparent', color: branch === k ? 'var(--ink)' : 'var(--ink-3)' }}>{v.label.split(' · ')[0]}</button>
+            {storyList.map(s => (
+              <button key={s.id} className="btn btn-sm" onClick={() => { setStoryId(s.id); setSel(null); }}
+                style={{ background: storyId === s.id ? 'var(--bg-3)' : 'transparent', color: storyId === s.id ? 'var(--ink)' : 'var(--ink-3)' }}>{s.title}</button>
             ))}
           </div>
         </div>
       </div>
 
       <div className="reader-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 340px', gap: 20, alignItems: 'start' }}>
-        {/* graph */}
+        {/* граф персонажей */}
         <div>
           <div className="reveal tree-scroll" style={{ position: 'relative', overflow: 'auto', height: 'clamp(420px,56vh,560px)', borderRadius: 6, border: '1px solid var(--line-soft)', background: 'radial-gradient(60% 50% at 50% 35%, var(--bg-2), var(--bg))' }}>
-            <div style={{ position: 'relative', width: 720, height: 480, margin: '0 auto' }}>
-              <svg width="720" height="480" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                {LORE_EDGES.map((e, i) => {
-                  const a = byId[e[0]], b = byId[e[1]];
-                  const on = sel === e[0] || sel === e[1];
+            {charIds.length === 0 ? (
+              <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', padding: 30 }}>
+                <div>
+                  <Icon name="eye" size={26} />
+                  <p className="serif-italic" style={{ color: 'var(--ink-2)', marginTop: 12, fontSize: '1.05rem' }}>В этой истории ещё не отмечены судьбы героев.</p>
+                  <p className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginTop: 6 }}>Авторы задают статусы персонажей в редакторе главы — тогда здесь появятся граф и проверка канона.</p>
+                </div>
+              </div>
+            ) : (
+              <div style={{ position: 'relative', width: W, height: H, margin: '0 auto' }}>
+                <svg width={W} height={H} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+                  {edges.map((e, i) => {
+                    const a = layout[e.a], b = layout[e.b];
+                    if (!a || !b) return null;
+                    const on = cur === e.a || cur === e.b;
+                    return (
+                      <g key={i}>
+                        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={on ? 'var(--accent)' : 'var(--line)'} strokeWidth={on ? 1.8 : 1} opacity={on ? .9 : .4} />
+                        {on && <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4} fill="var(--ink-3)" fontSize="9" fontFamily="var(--mono)" textAnchor="middle">{edgeLabel(e)}</text>}
+                      </g>
+                    );
+                  })}
+                </svg>
+                {charIds.map(id => {
+                  const p = layout[id]; const hue = hueFor(id);
+                  const active = cur === id, near = neighbors.has(id);
                   return (
-                    <g key={i}>
-                      <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={on ? 'var(--accent)' : 'var(--line)'} strokeWidth={on ? 1.8 : 1} opacity={on ? .9 : .4} />
-                      {on && <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 4} fill="var(--ink-3)" fontSize="9" fontFamily="var(--mono)" textAnchor="middle">{e[2]}</text>}
-                    </g>
+                    <button key={id} onClick={() => setSel(id)} style={{
+                      position: 'absolute', left: p.x, top: p.y, transform: 'translate(-50%,-50%)',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
+                      opacity: active || near || !neighbors.size ? 1 : .45, transition: '.25s var(--ease)',
+                    }}>
+                      <span style={{ width: active ? 54 : 46, height: active ? 54 : 46, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                        background: `oklch(0.7 0.12 ${hue} / .14)`, border: `1.5px solid oklch(0.7 0.13 ${hue} / ${active ? 1 : .6})`,
+                        boxShadow: active ? `0 0 22px -4px oklch(0.7 0.13 ${hue} / .7)` : 'none', transition: '.25s var(--ease)',
+                        fontFamily: 'var(--display)', fontWeight: 700, color: `oklch(0.82 0.12 ${hue})`, fontSize: active ? '1.1rem' : '.95rem' }}>
+                        {(CHARACTERS[id] && CHARACTERS[id].glyph) || nameFor(id)[0]}
+                      </span>
+                      <span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>{nameFor(id)}</span>
+                      {latest[id] && <StatusPill status={latest[id]} />}
+                    </button>
                   );
                 })}
-              </svg>
-              {LORE_NODES.map(n => {
-                const t = LORE_TYPES[n.type];
-                const st = B.status[n.id];
-                const active = sel === n.id, near = neighbors.has(n.id);
-                return (
-                  <button key={n.id} onClick={() => setSel(n.id)} style={{
-                    position: 'absolute', left: n.x, top: n.y, transform: 'translate(-50%,-50%)',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5,
-                    opacity: active || near || !neighbors.size ? 1 : .45, transition: '.25s var(--ease)',
-                  }}>
-                    <span style={{ width: active ? 52 : 44, height: active ? 52 : 44, borderRadius: '50%', display: 'grid', placeItems: 'center',
-                      background: `oklch(0.7 0.12 ${t.hue} / .14)`, border: `1.5px solid oklch(0.7 0.13 ${t.hue} / ${active ? 1 : .6})`,
-                      boxShadow: active ? `0 0 22px -4px oklch(0.7 0.13 ${t.hue} / .7)` : 'none', transition: '.25s var(--ease)',
-                      fontFamily: 'var(--display)', fontWeight: 700, color: `oklch(0.8 0.12 ${t.hue})`, fontSize: active ? '1.05rem' : '.9rem' }}>
-                      {n.label[0]}
-                    </span>
-                    <span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>{n.label}</span>
-                    {st && <StatusPill status={st} />}
-                  </button>
-                );
-              })}
-            </div>
+              </div>
+            )}
           </div>
           <div className="reveal" style={{ display: 'flex', gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
-            {Object.entries(LORE_TYPES).map(([k, v]) => (
+            {Object.entries(CHAR_STATUS).map(([k, v]) => (
               <span key={k} className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                 <span className="dot" style={{ background: `oklch(0.7 0.13 ${v.hue})` }} />{v.label}
               </span>
             ))}
-            <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginLeft: 'auto' }}>тяни, чтобы листать · {B.label}</span>
+            <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginLeft: 'auto' }}>цвет узла = статус на верхушке канона</span>
           </div>
         </div>
 
-        {/* codex + continuity */}
+        {/* кодекс героя + проверка непротиворечивости */}
         <aside style={{ position: 'sticky', top: 84, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card framed" style={{ padding: 20 }}>
-            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 8 }}>{LORE_TYPES[node.type].label} · авто-кодекс</div>
-            <h2 className="display" style={{ fontSize: '1.5rem', marginBottom: 6 }}>{node.label}</h2>
-            {B.status[node.id] && <div style={{ marginBottom: 12 }}><StatusPill status={B.status[node.id]} /></div>}
-            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', margin: '12px 0 6px' }}>Появления ({appearances.length} глав)</div>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              {appearances.map(c => <span key={c} className="tag" style={{ fontSize: '.5rem', padding: '.25em .5em' }}>{c.toUpperCase()}</span>)}
+          {cur && (
+            <div className="card framed" style={{ padding: 20 }}>
+              <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 8 }}>{(CHARACTERS[cur] && CHARACTERS[cur].role) || 'персонаж'} · авто-кодекс</div>
+              <h2 className="display" style={{ fontSize: '1.5rem', marginBottom: 6 }}>{nameFor(cur)}</h2>
+              {latest[cur] && <div style={{ marginBottom: 12 }}><StatusPill status={latest[cur]} /></div>}
+              <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', margin: '12px 0 8px' }}>Появления ({appearances.length} глав · ✦ канон)</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {appearances.map(ap => (
+                  <button key={ap.id} onClick={() => go('reader', { story: storyId, node: ap.id })}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', padding: '5px 7px', borderRadius: 4, border: '1px solid var(--line-soft)', background: ap.canon ? 'oklch(0.8 0.1 90 / .06)' : 'transparent' }}>
+                    {ap.canon && <span style={{ color: 'var(--gold)', fontSize: '.7rem' }}>✦</span>}
+                    <span style={{ flex: 1, fontSize: '.8rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ap.title}</span>
+                    <StatusPill status={ap.status} />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="card" style={{ padding: 18 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <h3 className="display" style={{ fontSize: '1.05rem' }}>Проверка канона</h3>
               <span className="mono" style={{ fontSize: '.5rem', padding: '.25em .55em', borderRadius: 2,
-                background: unresolved ? 'oklch(0.7 0.12 35 / .15)' : 'oklch(0.7 0.13 150 / .15)',
-                color: unresolved ? 'oklch(0.78 0.13 35)' : 'oklch(0.78 0.13 150)' }}>
-                {unresolved ? `${unresolved} замеч.` : 'чисто'}
+                background: issues.length ? 'oklch(0.7 0.12 35 / .15)' : 'oklch(0.7 0.13 150 / .15)',
+                color: issues.length ? 'oklch(0.78 0.13 35)' : 'oklch(0.78 0.13 150)' }}>
+                {issues.length ? `${issues.length} замеч.` : 'чисто'}
               </span>
             </div>
-            <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 14 }}>авто-сканирование ветки на противоречия</p>
-            {visibleIssues.length === 0 ? (
+            <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 14 }}>сканируем канон-цепочку на противоречия в судьбах героев</p>
+            {issues.length === 0 ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'oklch(0.78 0.13 150)' }}>
-                <Icon name="check" size={16} /><span style={{ fontSize: '.86rem' }}>Противоречий не найдено</span>
+                <Icon name="check" size={16} /><span style={{ fontSize: '.86rem' }}>{charIds.length ? 'Противоречий не найдено' : 'Нечего проверять'}</span>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {visibleIssues.map(({ iss, i }) => {
+                {issues.map(iss => {
                   const hue = iss.sev === 'high' ? 25 : iss.sev === 'mid' ? 50 : 86;
-                  const done = handled[issueKey(i)] === 'resolved';
                   return (
-                    <div key={i} style={{ borderLeft: `2px solid oklch(0.7 0.14 ${done ? 150 : hue})`, paddingLeft: 11, opacity: done ? .7 : 1 }}>
+                    <div key={iss.id} style={{ borderLeft: `2px solid oklch(0.7 0.14 ${hue})`, paddingLeft: 11 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600, fontSize: '.88rem' }}>{iss.t}</span>
-                        <span className="mono" style={{ fontSize: '.46rem', color: `oklch(0.78 0.13 ${done ? 150 : hue})`, textTransform: 'uppercase' }}>{done ? 'разрешено' : iss.sev}</span>
+                        <span style={{ fontWeight: 600, fontSize: '.88rem' }}>{KIND_LABEL[iss.kind] || 'Неувязка'} · {iss.charName}</span>
+                        <span className="mono" style={{ fontSize: '.46rem', color: `oklch(0.78 0.13 ${hue})`, textTransform: 'uppercase' }}>{iss.sev}</span>
                       </div>
-                      <p style={{ fontSize: '.82rem', color: 'var(--ink-2)', marginBottom: 8 }}>{iss.d}</p>
-                      {done ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: 'oklch(0.78 0.13 150)' }}>
-                          <Icon name="check" size={13} /><span className="mono" style={{ fontSize: '.56rem' }}>линии разведены</span>
-                          <button className="mono path-crumb" onClick={() => setIssue(i, null)} style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginLeft: 6 }}>отменить</button>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-sm btn-primary" style={{ fontSize: '.62rem' }} onClick={() => setIssue(i, 'resolved')}>Развести линии</button>
-                          <button className="btn btn-sm btn-ghost" style={{ fontSize: '.62rem' }} onClick={() => setIssue(i, 'ignored')}>Игнор</button>
-                        </div>
-                      )}
+                      <p style={{ fontSize: '.82rem', color: 'var(--ink-2)', marginBottom: 8 }}>{iss.text}</p>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-sm btn-primary" style={{ fontSize: '.62rem' }} onClick={() => goFix(iss)} title="Открыть спорную главу в чтении, чтобы развести линии">Развести линии</button>
+                        <button className="btn btn-sm btn-ghost" style={{ fontSize: '.62rem' }} onClick={() => doIgnore(iss.id)}>Игнор</button>
+                      </div>
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {hiddenCount > 0 && (
+              <div style={{ marginTop: 14, borderTop: 'var(--rule-style)', paddingTop: 10 }}>
+                <button className="mono path-crumb" onClick={() => setShowHidden(v => !v)} style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>
+                  {showHidden ? 'скрыть' : `показать скрытые (${hiddenCount})`}
+                </button>
+                {showHidden && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                    {allIssues.filter(x => ignored.includes(x.id)).map(iss => (
+                      <div key={iss.id} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: .7 }}>
+                        <span style={{ flex: 1, fontSize: '.74rem', color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{iss.charName} · {KIND_LABEL[iss.kind] || 'неувязка'}</span>
+                        <button className="mono path-crumb" onClick={() => doUnignore(iss.id)} style={{ fontSize: '.52rem', color: 'var(--accent)' }}>вернуть</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1900,53 +1935,61 @@ Object.assign(window, { Stakes });
    WYRM · #4 Writers' Room — живая эстафета (relay)
    ============================================================ */
 
-const RELAY_PAST = [
-  { who: 'eira_noct', text: 'Костёр догорал. Кейра не спала третью ночь — пепел снова шёл с севера.' },
-  { who: 'mara.q', text: 'Вэйл протянул ей флягу. «Ты не обязана нести это одна», — сказал он, и впервые за годы это не прозвучало упрёком.' },
-];
-const RELAY_LIVE = 'Она приняла флягу, но не выпила. На горизонте, там, где небо встречалось с мёртвой землёй, что-то огромное расправляло крылья — и Кейра поняла: Вирм проснулся не один.';
-const RELAY_DIRECTIONS = [
-  { id: 'd1', text: 'Второй дракон — союзник. Древний враг Архонта.', votes: 312 },
-  { id: 'd2', text: 'Это не дракон. Это то, что люди заперли под Аркадией.', votes: 488 },
-  { id: 'd3', text: 'Кейра скрывает увиденное от Вэйла. Пока.', votes: 201 },
-];
-const RELAY_QUEUE = [
-  { who: 'nyx___', role: 'пишет сейчас', live: true },
-  { who: 'grimwarden', role: 'следующий · 2 мин' },
-  { who: 'sol_inkwell', role: 'в очереди' },
-  { who: 'ashpoet', role: 'в очереди' },
-];
-
 function WritersRoom({ go }) {
   const ref = useReveal();
-  const [typed, setTyped] = useState('');
-  const [secs, setSecs] = useState(48);
-  const [dirs, setDirs] = useState(RELAY_DIRECTIONS);
-  const [voted, setVoted] = useState(null);
-  const [reacts, setReacts] = useState({ flame: 142, star: 88 });
-  const [inQueue, setInQueue] = useState(false);
-
-  // simulate live typing
-  useEffect(() => {
-    let i = 0; const id = setInterval(() => {
-      i += 2; setTyped(RELAY_LIVE.slice(0, i));
-      if (i >= RELAY_LIVE.length) clearInterval(id);
-    }, 45);
-    return () => clearInterval(id);
-  }, []);
-  // turn countdown
-  useEffect(() => {
-    const id = setInterval(() => setSecs(s => (s > 0 ? s - 1 : 48)), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  const vote = (id) => { if (voted) return; setVoted(id); setDirs(d => d.map(x => x.id === id ? { ...x, votes: x.votes + 1 } : x)); };
-  const total = dirs.reduce((s, d) => s + d.votes, 0);
-  const lead = dirs.reduce((a, b) => b.votes > a.votes ? b : a, dirs[0]);
-  const react = k => setReacts(r => ({ ...r, [k]: r[k] + 1 }));
   const me = wyrmLoad('wyrm.user', null);
-  const myHandle = me ? (me.handle || me.name) : 'ты';
-  const queue = inQueue ? [...RELAY_QUEUE, { who: myHandle, role: 'в очереди · ты', mine: true }] : RELAY_QUEUE;
+  const myId = me ? (me.handle || me.name) : 'ты';
+  const [st, setSt] = useState(null);          // нормализованный снапшот комнаты
+  const [draft, setDraft] = useState('');       // мой текст, когда перо у меня
+  const [voted, setVoted] = useState(null);
+  const [now, setNow] = useState(Date.now());
+  const [newDir, setNewDir] = useState('');
+  const clientRef = useRef(null);
+
+  // подключение к realtime (боевой ws или демо-симулятор) + тик для таймера
+  useEffect(() => {
+    let alive = true; let client = null;
+    (async () => {
+      const token = await store.getAuthToken();
+      if (!alive) return;
+      client = realtime.connectRoom('ashes', { token, me: myId, onState: (s) => { if (alive) setSt(s); } });
+      clientRef.current = client;
+    })();
+    const tid = setInterval(() => setNow(Date.now()), 500);
+    return () => { alive = false; clearInterval(tid); const cl = client || clientRef.current; if (cl) cl.close(); };
+  }, []);
+
+  const cl = () => clientRef.current;
+  const iHold = !!(st && st.turnHolder === myId);
+  // получив перо, подхватываем текущий буфер сервера один раз
+  useEffect(() => { if (iHold) setDraft((st && st.buffer) || ''); /* eslint-disable-next-line */ }, [iHold]);
+
+  const history = st ? st.history : [];
+  const buffer = st ? st.buffer : '';
+  const queue = st ? st.queue : [];
+  const dirs = st ? st.directions : [];
+  const reacts = st ? st.reacts : { flame: 0, star: 0 };
+  const live = !!(st && st.live);
+  const inQueue = queue.includes(myId);
+  const holder = st ? st.turnHolder : null;
+  const secs = st && st.turnDeadline ? Math.max(0, Math.round((st.turnDeadline - now) / 1000)) : 0;
+  const total = dirs.reduce((s, d) => s + d.votes, 0);
+  const lead = dirs.reduce((a, b) => (a && a.votes >= b.votes ? a : b), null);
+  const authors = new Set(history.map(h => h.who)).size;
+  const nick = (id) => (id === myId ? 'ты' : id);
+
+  const onType = (v) => { setDraft(v); cl() && cl().type(v); };
+  const commit = () => { if (!draft.trim()) return; cl() && cl().commit(draft); setDraft(''); };
+  const vote = (id) => { if (voted) return; setVoted(id); cl() && cl().vote(id); };
+  const react = (k) => cl() && cl().react(k);
+  const toggleQueue = () => { const c = cl(); if (!c) return; inQueue ? c.dequeue() : c.enqueue(); };
+  const addDir = () => { const t = newDir.trim(); if (!t) return; cl() && cl().addDirection(t); setNewDir(''); };
+
+  if (!st) return (
+    <div className="view wrap" style={{ padding: '16vh 0', textAlign: 'center' }}>
+      <p className="mono" style={{ color: 'var(--ink-3)' }}>подключение к комнате…</p>
+    </div>
+  );
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>
@@ -1956,43 +1999,63 @@ function WritersRoom({ go }) {
           <h1 className="display" style={{ fontSize: 'clamp(1.9rem,4.4vw,3rem)' }}>Сеанс: «Пепел Аркадии»</h1>
         </div>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-          <span className="mono live-badge" style={{ fontSize: '.6rem', color: 'oklch(0.7 0.2 25)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'oklch(0.7 0.2 25)' }} />В ЭФИРЕ
-          </span>
-          <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', display: 'inline-flex', gap: 5, alignItems: 'center' }}><Icon name="eye" size={14} />1 204 смотрят</span>
+          {live ? (
+            <span className="mono live-badge" style={{ fontSize: '.6rem', color: 'oklch(0.7 0.2 25)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'oklch(0.7 0.2 25)' }} />В ЭФИРЕ
+            </span>
+          ) : (
+            <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Сервер realtime не подключён — локальная симуляция эстафеты">
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--ink-3)' }} />демо-режим
+            </span>
+          )}
+          <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)', display: 'inline-flex', gap: 5, alignItems: 'center' }}><Icon name="users" size={14} />{queue.length} в эстафете</span>
         </div>
       </div>
 
       <div className="reader-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 20, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* live manuscript */}
+          {/* живой манускрипт */}
           <div className="reveal card framed" style={{ padding: 24, position: 'relative' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>живой манускрипт · абзац 14</span>
-              <span className="mono" style={{ fontSize: '.56rem', color: secs < 10 ? 'oklch(0.7 0.2 25)' : 'var(--ink-2)' }}>ход @nyx___ · 0:{String(secs).padStart(2, '0')}</span>
+              <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>живой манускрипт · абзац {history.length + 1}</span>
+              <span className="mono" style={{ fontSize: '.56rem', color: secs < 10 ? 'oklch(0.7 0.2 25)' : 'var(--ink-2)' }}>
+                {holder ? (iHold ? `твой ход · 0:${String(secs).padStart(2, '0')}` : `ход @${nick(holder)} · 0:${String(secs).padStart(2, '0')}`) : 'перо свободно'}
+              </span>
             </div>
             <div style={{ fontFamily: 'var(--serif)', fontSize: '1.12rem', lineHeight: 1.75, color: 'var(--ink)' }}>
-              {RELAY_PAST.map((p, i) => (
+              {history.map((p, i) => (
                 <p key={i} style={{ marginBottom: 14, color: 'var(--ink-2)' }}>
-                  {p.text}<span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginLeft: 6 }}>— @{p.who}</span>
+                  {p.text}<span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginLeft: 6 }}>— @{nick(p.who)}</span>
                 </p>
               ))}
-              <p style={{ color: 'var(--ink)' }}>
-                {typed}<span className="caret" style={{ borderRight: '2px solid var(--accent)', marginLeft: 1 }}>&nbsp;</span>
-              </p>
+              {iHold ? (
+                <div>
+                  <textarea className="compose-input" value={draft} onChange={e => onType(e.target.value)} rows={3}
+                    placeholder="Твой ход — продолжай эстафету…" style={{ width: '100%', resize: 'vertical', fontFamily: 'var(--serif)', fontSize: '1.05rem' }} />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                    <button className="btn btn-primary btn-sm" onClick={commit} disabled={!draft.trim()} style={{ opacity: draft.trim() ? 1 : .5 }}>
+                      <Icon name="quill" size={14} />Передать перо
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--ink)' }}>
+                  {buffer}<span className="caret" style={{ borderRight: '2px solid var(--accent)', marginLeft: 1 }}>&nbsp;</span>
+                </p>
+              )}
             </div>
-            {/* reactions */}
+            {/* реакции */}
             <div style={{ display: 'flex', gap: 10, marginTop: 18, borderTop: 'var(--rule-style)', paddingTop: 14 }}>
               {[['flame', 'уголёк'], ['star', 'канон']].map(([k, l]) => (
                 <button key={k} onClick={() => react(k)} className="btn btn-ghost btn-sm" style={{ fontSize: '.7rem' }}>
-                  <Icon name={k} size={14} />{reacts[k]}
+                  <Icon name={k} size={14} />{reacts[k] || 0}
                 </button>
               ))}
               <span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginLeft: 'auto', alignSelf: 'center' }}>реакции зрителей влияют на канон-рейтинг</span>
             </div>
           </div>
 
-          {/* audience steering */}
+          {/* куда вести историю */}
           <div className="reveal card" style={{ padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <h2 className="display" style={{ fontSize: '1.25rem' }}>Куда вести историю?</h2>
@@ -2001,8 +2064,8 @@ function WritersRoom({ go }) {
             <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 16 }}>зрители подсказывают следующий поворот — лидер уходит автору хода</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {dirs.map(d => {
-                const pct = Math.round(d.votes / total * 100);
-                const isLead = d.id === lead.id, mine = voted === d.id;
+                const pct = total ? Math.round(d.votes / total * 100) : 0;
+                const isLead = lead && d.id === lead.id, mine = voted === d.id;
                 return (
                   <button key={d.id} onClick={() => vote(d.id)} disabled={!!voted} style={{
                     position: 'relative', textAlign: 'left', padding: '12px 14px', borderRadius: 5, overflow: 'hidden',
@@ -2017,35 +2080,44 @@ function WritersRoom({ go }) {
                 );
               })}
             </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <input className="compose-input" value={newDir} onChange={e => setNewDir(e.target.value)} placeholder="Предложить свой поворот…"
+                onKeyDown={e => { if (e.key === 'Enter') addDir(); }} style={{ flex: 1, fontSize: '.82rem' }} />
+              <button className="btn btn-ghost btn-sm" onClick={addDir} disabled={!newDir.trim()} style={{ opacity: newDir.trim() ? 1 : .5 }}><Icon name="plus" size={14} />Добавить</button>
+            </div>
           </div>
         </div>
 
-        {/* rail: relay queue */}
+        {/* рейл: очередь эстафеты */}
         <aside style={{ position: 'sticky', top: 84, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card" style={{ padding: 18 }}>
             <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 12 }}>Эстафета · передача пера</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {queue.map((w, i) => (
-                <div key={w.who} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', borderTop: i ? 'var(--rule-style)' : 'none' }}>
-                  <span style={{ position: 'relative' }}>
-                    <Avatar name={w.who} size={30} />
-                    {w.live && <span style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: 'oklch(0.7 0.2 25)', border: '2px solid var(--bg-2)' }} />}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '.86rem', fontWeight: 600 }}>@{w.who}</div>
-                    <div className="mono" style={{ fontSize: '.48rem', color: w.live ? 'oklch(0.7 0.2 25)' : 'var(--ink-3)' }}>{w.role}</div>
+              {queue.length === 0 && <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>очередь пуста — встань первым</p>}
+              {queue.map((id, i) => {
+                const isHolder = id === holder;
+                return (
+                  <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 11, padding: '9px 0', borderTop: i ? 'var(--rule-style)' : 'none' }}>
+                    <span style={{ position: 'relative' }}>
+                      <Avatar name={id} size={30} />
+                      {isHolder && <span style={{ position: 'absolute', right: -1, bottom: -1, width: 9, height: 9, borderRadius: '50%', background: 'oklch(0.7 0.2 25)', border: '2px solid var(--bg-2)' }} />}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '.86rem', fontWeight: 600 }}>@{nick(id)}</div>
+                      <div className="mono" style={{ fontSize: '.48rem', color: isHolder ? 'oklch(0.7 0.2 25)' : 'var(--ink-3)' }}>{isHolder ? 'пишет сейчас' : (i === 0 ? 'следующий' : 'в очереди')}</div>
+                    </div>
+                    {isHolder && <Icon name="quill" size={15} />}
                   </div>
-                  {w.live && <Icon name="quill" size={15} />}
-                </div>
-              ))}
+                );
+              })}
             </div>
-            <button className="btn btn-primary" onClick={() => setInQueue(q => !q)} style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}>
-              <Icon name={inQueue ? 'check' : 'plus'} size={15} />{inQueue ? `Ты в очереди (${queue.length}-й) · выйти` : 'Встать в эстафету'}
+            <button className="btn btn-primary" onClick={toggleQueue} style={{ width: '100%', justifyContent: 'center', marginTop: 14 }}>
+              <Icon name={inQueue ? 'check' : 'plus'} size={15} />{inQueue ? 'Ты в эстафете · выйти' : 'Встать в эстафету'}
             </button>
           </div>
 
           <div className="card" style={{ padding: 18, display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
-            {[['1 204', 'смотрят'], ['14', 'абзацев'], ['6', 'авторов']].map(([v, k]) => (
+            {[[String(queue.length), 'в эстафете'], [String(history.length), 'абзацев'], [String(authors), 'авторов']].map(([v, k]) => (
               <div key={k}><div className="display" style={{ fontSize: '1.5rem' }}>{v}</div><div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{k}</div></div>
             ))}
           </div>

@@ -530,3 +530,30 @@ export async function saveWorkspacePreset(name, cfg) {
   const list = load('wyrm.wsPresets', []);
   save('wyrm.wsPresets', [...list.filter(p => p.name !== name), { id: uid('w'), name, cfg }]);
 }
+
+/* ============================================================
+   REALTIME — токен для «Комнаты авторов» (ws-сервис realtime/)
+   В боевом режиме отдаём PocketBase JWT; в демо — null (клиент
+   уходит в локальную симуляцию, см. lib/realtime.js).
+   ============================================================ */
+export async function getAuthToken() {
+  if (enabled) {
+    const pb = await pbClient();
+    return pb && pb.authStore.isValid ? pb.authStore.token : null;
+  }
+  return null;
+}
+
+/* ============================================================
+   КОДЕКС МИРА — список «заигноренных» неувязок (LoreGraph).
+   Локальная мета пользователя (PB-коллекции под это нет), хранится
+   в wyrm.loreIgnored как массив id неувязок.
+   ============================================================ */
+export function getLoreIgnored() { return load('wyrm.loreIgnored', []); }
+export function ignoreLoreIssue(id) {
+  const list = load('wyrm.loreIgnored', []);
+  if (!list.includes(id)) save('wyrm.loreIgnored', [...list, id]);
+}
+export function unignoreLoreIssue(id) {
+  save('wyrm.loreIgnored', load('wyrm.loreIgnored', []).filter(x => x !== id));
+}
