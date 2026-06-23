@@ -108,6 +108,29 @@ export async function signIn(email, password) {
   const handle = email.split('@')[0].toLowerCase().replace(/[^a-zа-я0-9]+/gi, '_');
   const u = { name: handle, email, handle, role: demoRole(email), reputation: 0 }; save('wyrm.user', u); return u;
 }
+// OAuth (VK/Yandex/Google/Apple). Провайдер включается в админке PocketBase
+// (Settings → Auth providers). Без подключённого сервера соцвход недоступен.
+export async function signInOAuth(provider) {
+  if (!enabled) throw new Error('Соцвход доступен только с подключённым сервером.');
+  const pb = await pbClient();
+  await pb.collection('users').authWithOAuth2({ provider });
+  return await currentUser();
+}
+
+// Восстановление пароля / повторное письмо верификации (нужен SMTP на сервере).
+export async function requestPasswordReset(email) {
+  if (!enabled) throw new Error('Восстановление пароля доступно только с подключённым сервером (SMTP).');
+  const pb = await pbClient();
+  await pb.collection('users').requestPasswordReset(email);
+  return true;
+}
+export async function requestVerification(email) {
+  if (!enabled) throw new Error('Подтверждение почты доступно только с подключённым сервером (SMTP).');
+  const pb = await pbClient();
+  await pb.collection('users').requestVerification(email);
+  return true;
+}
+
 // демо: чтобы можно было протестировать модерацию — почта вида mod@… делает модератором
 function demoRole(email) { return /^mod(erator)?@/i.test(email || '') ? 'moderator' : 'user'; }
 export async function signOut() {
@@ -563,13 +586,35 @@ export async function markAllNotificationsRead() {
    cfg = { left, right, bottom, focus, goal } (видимость доков + цель по словам)
    ============================================================ */
 const DEFAULT_DESK = { left: true, right: true, bottom: false, focus: false, goal: 500 };
+const ACTIVE_DESK = '__active__'; // зарезервированное имя пресета активной раскладки
 export function getWorkspaceCfg() { return { ...DEFAULT_DESK, ...load('wyrm.workspace', {}) }; }
-export function saveWorkspaceCfg(cfg) { save('wyrm.workspace', cfg); }
+export function saveWorkspaceCfg(cfg) {
+  save('wyrm.workspace', cfg);            // мгновенно — локально
+  if (enabled) syncActiveDesk(cfg);        // и best-effort синк в аккаунт
+}
+// upsert активной раскладки в аккаунт (между устройствами)
+async function syncActiveDesk(cfg) {
+  try {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return;
+    const ex = await pb.collection('workspace_presets').getFullList({ filter: pb.filter("user={:u} && name={:n}", { u: me.id, n: ACTIVE_DESK }) });
+    if (ex.length) await pb.collection('workspace_presets').update(ex[0].id, { cfg });
+    else await pb.collection('workspace_presets').create({ user: me.id, name: ACTIVE_DESK, cfg });
+  } catch (e) {}
+}
+// загрузить активную раскладку из аккаунта (PB), иначе null
+export async function loadWorkspaceCfgRemote() {
+  if (!enabled) return null;
+  try {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return null;
+    const ex = await pb.collection('workspace_presets').getFullList({ filter: pb.filter("user={:u} && name={:n}", { u: me.id, n: ACTIVE_DESK }) });
+    return ex.length ? ex[0].cfg : null;
+  } catch (e) { return null; }
+}
 
 export async function listWorkspacePresets() {
   if (enabled) {
     const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
-    try { const r = await pb.collection('workspace_presets').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) }); return r.map(x => ({ id: x.id, name: x.name, cfg: x.cfg })); } catch (e) { return []; }
+    try { const r = await pb.collection('workspace_presets').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) }); return r.filter(x => x.name !== ACTIVE_DESK).map(x => ({ id: x.id, name: x.name, cfg: x.cfg })); } catch (e) { return []; }
   }
   return load('wyrm.wsPresets', []);
 }

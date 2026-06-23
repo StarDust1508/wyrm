@@ -5,6 +5,7 @@ import * as store from './lib/store.js'
 import * as diff from './lib/diff.js'
 import * as consistency from './lib/consistency.js'
 import * as realtime from './lib/realtime.js'
+import { t } from './lib/i18n.js'
 
 // Strict allowlist sanitizer for chapter HTML (editor + imported .docx).
 // Kills <script>, event handlers, javascript: URLs, styles — anything that
@@ -1067,6 +1068,8 @@ function Compose({ go, ctx, setCtx }) {
   const [notes, setNotes] = useState(() => wyrmLoad('wyrm.draftNotes', ''));
   const [presets, setPresets] = useState(DESK_PRESETS);
   useEffect(() => { store.listWorkspacePresets().then(p => setPresets(p && p.length ? [...DESK_PRESETS, ...p] : DESK_PRESETS)); }, []);
+  // синхр. активной раскладки из аккаунта (между устройствами, N5)
+  useEffect(() => { store.loadWorkspaceCfgRemote().then(c => { if (c) setDesk(d => ({ ...d, ...c })); }); }, []);
   const setDeskCfg = (patch) => setDesk(d => { const n = { ...d, ...patch }; store.saveWorkspaceCfg(n); return n; });
   const togglePanel = (k) => setDeskCfg({ [k]: !desk[k] });
   const savePreset = async () => { const name = (typeof prompt !== 'undefined') && prompt('Название раскладки'); if (!name) return; await store.saveWorkspacePreset(name, desk); setPresets(p => [...p.filter(x => x.name !== name), { name, cfg: { ...desk } }]); };
@@ -2627,6 +2630,15 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
   const valid = email.includes('@') && pass.length >= 4 && (!reg || name.trim());
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const cardRef = useRef(null);
+  // a11y: Escape закрывает, фокус уходит на первое поле при открытии
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    const t = setTimeout(() => { const el = cardRef.current && cardRef.current.querySelector('input'); if (el) el.focus(); }, 40);
+    return () => { document.removeEventListener('keydown', onKey); clearTimeout(t); };
+  }, [open]);
 
   const submit = async (e) => {
     e && e.preventDefault();
@@ -2638,15 +2650,30 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
     } catch (ex) { setErr(ex.message || 'Не удалось войти'); }
     setBusy(false);
   };
-  const social = (prov) => {
-    if (store.enabled) { setErr('Соцвход пока не настроен — войдите по почте'); return; }
-    onAuth({ name: prov === 'vk' ? 'Гость ВК' : 'Автор', email: prov + '@wyrm', handle: prov + '_user' });
+  const social = async (prov) => {
+    if (busy) return;
+    if (!store.enabled) { // демо: без сервера — гостевой вход
+      onAuth({ name: prov === 'vk' ? 'Гость ВК' : 'Автор', email: prov + '@wyrm', handle: prov + '_user' });
+      return;
+    }
+    setBusy(true); setErr('');
+    try { onAuth(await store.signInOAuth(prov)); }
+    catch (ex) { setErr(ex.message || 'Соцвход не удался'); }
+    setBusy(false);
+  };
+  const forgot = async () => {
+    if (busy) return;
+    if (!email.includes('@')) { setErr('Введите почту, чтобы восстановить пароль'); return; }
+    setBusy(true); setErr('');
+    try { await store.requestPasswordReset(email); setErr('Письмо для сброса пароля отправлено на ' + email); }
+    catch (ex) { setErr(ex.message || 'Не удалось отправить письмо'); }
+    setBusy(false);
   };
 
   return (
     <div className="auth-overlay" data-open={open} onClick={onClose}>
-      <div className="auth-card card framed" onClick={e => e.stopPropagation()}>
-        <button className="icon-btn" onClick={onClose} style={{ position: 'absolute', top: 16, right: 16 }}><Icon name="x" size={16} /></button>
+      <div className="auth-card card framed" ref={cardRef} role="dialog" aria-modal="true" aria-label={reg ? 'Регистрация' : 'Вход'} onClick={e => e.stopPropagation()}>
+        <button className="icon-btn" aria-label="Закрыть" onClick={onClose} style={{ position: 'absolute', top: 16, right: 16 }}><Icon name="x" size={16} /></button>
 
         <div style={{ marginBottom: 22 }}>
           <div className="brand" style={{ marginBottom: 18 }}>
@@ -2682,6 +2709,11 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
             {busy ? 'Минуту…' : (reg ? 'Создать аккаунт' : 'Войти')}<Icon name="arrow" size={15} />
           </button>
           {err && <p className="mono" style={{ fontSize: '.56rem', color: 'oklch(0.65 0.18 25)', textAlign: 'center' }}>{err}</p>}
+          {!reg && (
+            <button type="button" onClick={forgot} disabled={busy} className="mono path-crumb" style={{ alignSelf: 'center', fontSize: '.56rem', color: 'var(--ink-3)' }}>
+              Забыли пароль?
+            </button>
+          )}
         </form>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0' }}>
@@ -2689,9 +2721,9 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
           <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>или</span>
           <span style={{ flex: 1, height: 1, background: 'var(--line-soft)' }} />
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[['google', 'Google'], ['apple', 'Apple'], ['vk', 'VK']].map(([k, l]) => (
-            <button key={k} className="btn btn-ghost btn-sm" onClick={() => social(k)} style={{ flex: 1, justifyContent: 'center' }}>{l}</button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {[['vk', 'VK'], ['yandex', 'Yandex'], ['google', 'Google'], ['apple', 'Apple']].map(([k, l]) => (
+            <button key={k} className="btn btn-ghost btn-sm" disabled={busy} onClick={() => social(k)} aria-label={'Войти через ' + l} style={{ flex: '1 0 40%', justifyContent: 'center' }}>{l}</button>
           ))}
         </div>
 
@@ -3327,7 +3359,7 @@ function Feed({ go, user }) {
       {hasMore && (
         <div style={{ textAlign: 'center', marginTop: 24 }}>
           <button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>
-            {loadingMore ? 'Загружаю…' : 'Показать ещё'}
+            {loadingMore ? t('common.loadingMore') : t('common.more')}
           </button>
         </div>
       )}
@@ -3566,7 +3598,7 @@ function CommunityDetail({ go, ctx, user }) {
           </div>
           {hasMore && (
             <div style={{ textAlign: 'center', marginTop: 20 }}>
-              <button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Загружаю…' : 'Показать ещё'}</button>
+              <button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? t('common.loadingMore') : t('common.more')}</button>
             </div>
           )}
         </section>
@@ -3650,7 +3682,7 @@ function Profile({ go, user }) {
           ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Постов пока нет.</p>
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 720 }}>
               {myPosts.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} />)}
-              {hasMore && <div style={{ textAlign: 'center', marginTop: 6 }}><button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Загружаю…' : 'Показать ещё'}</button></div>}
+              {hasMore && <div style={{ textAlign: 'center', marginTop: 6 }}><button className="btn btn-ghost" onClick={loadMore} disabled={loadingMore}>{loadingMore ? t('common.loadingMore') : t('common.more')}</button></div>}
             </div>
       )}
       {tab === 'communities' && (
