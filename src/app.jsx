@@ -2887,7 +2887,7 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
           <button type="submit" className="btn btn-primary" disabled={!valid || busy} style={{ justifyContent: 'center', marginTop: 6, opacity: valid && !busy ? 1 : .5 }}>
             {busy ? 'Минуту…' : (reg ? 'Создать аккаунт' : 'Войти')}<Icon name="arrow" size={15} />
           </button>
-          {err && <p className="mono" style={{ fontSize: '.56rem', color: 'oklch(0.65 0.18 25)', textAlign: 'center' }}>{err}</p>}
+          {err && <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink)', textAlign: 'center' }} role="alert">! {err}</p>}
           {!reg && (
             <button type="button" onClick={forgot} disabled={busy} className="mono path-crumb" style={{ alignSelf: 'center', fontSize: '.56rem', color: 'var(--ink-3)' }}>
               Забыли пароль?
@@ -3453,9 +3453,9 @@ function CommunityCard({ c, joined, onToggle, onOpen }) {
   return (
     <div className="reveal story-card card" style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', textAlign: 'left' }}>
       <button onClick={onOpen} style={{ position: 'relative', height: 96, cursor: 'pointer', textAlign: 'left',
-        background: `linear-gradient(135deg, oklch(0.6 0.13 ${c.hue} / .35), oklch(0.5 0.1 ${(c.hue + 40) % 360} / .15))`,
+        background: `repeating-linear-gradient(135deg, var(--bg-2) 0 10px, var(--bg-3) 10px 20px)`,
         borderBottom: 'var(--rule-style)' }}>
-        <span style={{ position: 'absolute', inset: 0, background: `radial-gradient(60% 80% at 20% 0%, oklch(0.7 0.14 ${c.hue} / .25), transparent 70%)` }} />
+        <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 40%, var(--bg-3))' }} />
         <span className="display" style={{ position: 'absolute', left: 16, bottom: 12, fontSize: '1.5rem' }}>{c.name}</span>
       </button>
       <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
@@ -3554,7 +3554,7 @@ function CommunityCreate({ user, onClose, onCreate, go }) {
         <aside style={{ position: 'sticky', top: 90, alignSelf: 'start' }}>
           <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>ПРЕДПРОСМОТР</div>
           <div className="card" style={{ overflow: 'hidden' }}>
-            <div style={{ height: 80, position: 'relative', background: `linear-gradient(135deg, oklch(0.6 0.13 ${hue} / .35), oklch(0.5 0.1 ${(hue + 40) % 360} / .15))`, borderBottom: 'var(--rule-style)' }}>
+            <div style={{ height: 80, position: 'relative', background: `repeating-linear-gradient(135deg, var(--bg-2) 0 10px, var(--bg-3) 10px 20px)`, borderBottom: 'var(--rule-style)' }}>
               <span className="display" style={{ position: 'absolute', left: 14, bottom: 10, fontSize: '1.25rem' }}>{name || 'Без названия'}</span>
             </div>
             <div style={{ padding: '14px 16px' }}>
@@ -3604,8 +3604,8 @@ function CommunityDetail({ go, ctx, user }) {
     <div className="view" ref={ref}>
       {/* баннер */}
       <div style={{ height: 'clamp(160px,26vh,260px)', position: 'relative', borderBottom: 'var(--rule-style)', overflow: 'hidden',
-        background: `linear-gradient(135deg, oklch(0.55 0.14 ${c.hue} / .4), oklch(0.45 0.1 ${(c.hue + 40) % 360} / .18))` }}>
-        <span style={{ position: 'absolute', inset: 0, background: `radial-gradient(50% 90% at 18% 0%, oklch(0.7 0.15 ${c.hue} / .3), transparent 70%)` }} />
+        background: `repeating-linear-gradient(135deg, var(--bg-2) 0 12px, var(--bg-3) 12px 24px)` }}>
+        <span style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 45%, var(--bg-3))' }} />
       </div>
 
       <div className="wrap" style={{ paddingBottom: 100, marginTop: -56, position: 'relative' }}>
