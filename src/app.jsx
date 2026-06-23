@@ -243,7 +243,7 @@ function useReveal() {
 }
 
 /* minimal UI icons (simple shapes only) */
-function Icon({ name, size = 18, stroke = 1.6 }) {
+function Icon({ name, size = 18, stroke = 1.4 }) {
   const p = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none',
     stroke: 'currentColor', strokeWidth: stroke, strokeLinecap: 'round', strokeLinejoin: 'round' };
   const paths = {
@@ -275,7 +275,7 @@ function Icon({ name, size = 18, stroke = 1.6 }) {
 function Tag({ id, active, onClick, asButton }) {
   const t = (window.WYRM.TAGS[id]) || { label: id, hue: 200 };
   const cls = 'tag' + (asButton ? ' tag-btn' : '');
-  const dot = <span className="dot" style={{ background: `oklch(0.7 0.16 ${t.hue})` }} />;
+  const dot = <span className="dot" />;
   if (asButton) return <button className={cls} data-active={!!active} onClick={onClick}>{dot}{t.label}</button>;
   return <span className={cls} data-active={!!active}>{dot}{t.label}</span>;
 }
@@ -285,7 +285,7 @@ function Avatar({ name, size = 30 }) {
   const ch = (name || '?').replace(/[^a-zа-я0-9]/i, '').slice(0, 1).toUpperCase();
   return (
     <span style={{
-      width: size, height: size, borderRadius: '50%', display: 'grid', placeItems: 'center',
+      width: size, height: size, borderRadius: 0, display: 'grid', placeItems: 'center',
       fontFamily: 'var(--mono)', fontSize: size * 0.4, color: 'var(--ink-2)',
       border: '1px solid var(--line)', background: 'var(--bg-3)', flex: '0 0 auto'
     }}>{ch}</span>
@@ -297,11 +297,11 @@ function CanonMeter({ score, gold }) {
   const pct = Math.round(score * 100);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{ flex: 1, height: 4, background: 'var(--line-soft)', borderRadius: 4, overflow: 'hidden' }}>
-        <div style={{ width: pct + '%', height: '100%', borderRadius: 4,
-          background: gold ? 'var(--gold)' : 'var(--accent)', transition: 'width 1s var(--ease)' }} />
+      <div style={{ flex: 1, height: 4, background: 'var(--line-soft)', borderRadius: 0, overflow: 'hidden' }}>
+        <div style={{ width: pct + '%', height: '100%', borderRadius: 0,
+          background: 'var(--ink-max)', transition: 'width 1s var(--ease)' }} />
       </div>
-      <span className="mono" style={{ fontSize: '.66rem', color: gold ? 'var(--gold)' : 'var(--ink-2)' }}>{pct}</span>
+      <span className="mono" style={{ fontSize: '.66rem', fontWeight: gold ? 700 : 500, color: gold ? 'var(--ink-max)' : 'var(--ink-2)' }}>{pct}{gold ? ' ★' : ''}</span>
     </div>
   );
 }
@@ -310,37 +310,33 @@ function CanonMeter({ score, gold }) {
 function CoverSlot({ label, ratio = '3 / 4', hue = 200, src }) {
   return (
     <div style={{
-      aspectRatio: ratio, width: '100%', borderRadius: 6, overflow: 'hidden',
-      border: '1px solid var(--line-soft)', position: 'relative',
+      aspectRatio: ratio, width: '100%', borderRadius: 0, overflow: 'hidden',
+      border: '1px solid var(--line)', position: 'relative',
       background: src ? 'var(--bg-2)' : `repeating-linear-gradient(135deg, var(--bg-2) 0 11px, var(--bg-3) 11px 22px)`,
       display: 'grid', placeItems: 'center'
     }}>
       {src
-        ? <img src={src} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-        : <React.Fragment>
-            <span style={{ position: 'absolute', inset: 0, background: `radial-gradient(80% 60% at 50% 0%, oklch(0.7 0.14 ${hue} / .14), transparent 70%)` }} />
-            <span className="mono" style={{ color: 'var(--ink-3)', fontSize: '.6rem', padding: '0 1em', textAlign: 'center', zIndex: 1 }}>{label}</span>
-          </React.Fragment>}
+        ? <img src={src} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(1) contrast(1.03)' }} />
+        : <span className="mono" style={{ color: 'var(--ink-3)', fontSize: '.6rem', padding: '0 1em', textAlign: 'center', zIndex: 1 }}>{label}</span>}
     </div>
   );
 }
 
 /* status pill for character states */
 const CHAR_STATUS = {
-  alive:   { label: 'Жив',    hue: 150 },
-  dead:    { label: 'Мёртв',  hue: 25 },
-  missing: { label: 'Пропал', hue: 50 },
-  changed: { label: 'Изменён', hue: 300 },
+  alive:   { label: 'Жив',    glyph: '●' },
+  dead:    { label: 'Мёртв',  glyph: '✕' },
+  missing: { label: 'Пропал', glyph: '?' },
+  changed: { label: 'Изменён', glyph: '≠' },
 };
 function StatusPill({ status }) {
   const s = CHAR_STATUS[status] || CHAR_STATUS.alive;
   return (
     <span className="mono" style={{
-      fontSize: '.56rem', padding: '.2em .5em', borderRadius: 2,
-      color: `oklch(0.78 0.12 ${s.hue})`,
-      border: `1px solid oklch(0.7 0.12 ${s.hue} / .4)`,
-      background: `oklch(0.7 0.12 ${s.hue} / .08)`
-    }}>{s.label}</span>
+      fontSize: 'var(--fs-micro)', padding: '.2em .5em', borderRadius: 0,
+      color: 'var(--ink)', border: '1px solid var(--line)', background: 'var(--bg-3)',
+      display: 'inline-flex', alignItems: 'center', gap: '.4em'
+    }}><span aria-hidden="true">{s.glyph}</span>{s.label}</span>
   );
 }
 
