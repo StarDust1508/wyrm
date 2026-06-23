@@ -525,6 +525,26 @@ Object.assign(window, { StoryTree, layoutTree, ancestorsOf });
    WYRM — Landing + Catalog views
    ============================================================ */
 
+/* Единый «реframed»-заголовок страницы: структурная линия с mono-индексом и
+   эйброу, крупный display-титул, лид. Делает все экраны консистентными с воротами. */
+function PageHead({ index, eyebrow, title, lede, meta, children }) {
+  return (
+    <header className="page-head reveal">
+      <div className="page-head-top">
+        {index && <span className="page-head-index">{index}</span>}
+        <span className="page-head-eyebrow">{eyebrow}</span>
+        <span className="page-head-rule" aria-hidden="true" />
+        {meta && <span className="page-head-meta">{meta}</span>}
+      </div>
+      <div className="page-head-row">
+        <h1 className="page-head-title display">{title}</h1>
+        {children && <div className="page-head-aside">{children}</div>}
+      </div>
+      {lede && <p className="page-head-lede serif-italic">{lede}</p>}
+    </header>
+  );
+}
+
 /* ---------------- LANDING ---------------- */
 function Landing({ go }) {
   const ref = useReveal();
@@ -658,11 +678,9 @@ function Catalog({ go }) {
       : (b.branches || 0) - (a.branches || 0));
 
   return (
-    <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
-      <div className="reveal" style={{ marginBottom: 30 }}>
-        <div className="eyebrow" style={{ marginBottom: 14 }}>Все живые истории · {STORIES.length}</div>
-        <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Каталог</h1>
-      </div>
+    <div className="view wrap" ref={ref} style={{ padding: '0 0 100px' }}>
+      <PageHead index="01" eyebrow="Каталог · живые истории" title="Каталог" meta={`${STORIES.length} работ`}
+        lede="Каждая история — древо: корень-завязка и ветви альтернативных судеб. Выбери, какую открыть и продолжить." />
 
       {/* filter bar */}
       <div className="reveal" style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '14px 0', marginBottom: 34 }}>
