@@ -505,3 +505,28 @@ export async function markAllNotificationsRead() {
   }
   const all = await listNotifications(); const map = {}; all.forEach(n => { map[n.id] = true; }); save('wyrm.notiRead', map);
 }
+
+/* ============================================================
+   ВЕРСТАК ПИСАТЕЛЯ — раскладка доков и пресеты (TZ §9)
+   cfg = { left, right, bottom, focus, goal } (видимость доков + цель по словам)
+   ============================================================ */
+const DEFAULT_DESK = { left: true, right: true, bottom: false, focus: false, goal: 500 };
+export function getWorkspaceCfg() { return { ...DEFAULT_DESK, ...load('wyrm.workspace', {}) }; }
+export function saveWorkspaceCfg(cfg) { save('wyrm.workspace', cfg); }
+
+export async function listWorkspacePresets() {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
+    try { const r = await pb.collection('workspace_presets').getFullList({ filter: pb.filter('user={:u}', { u: me.id }) }); return r.map(x => ({ id: x.id, name: x.name, cfg: x.cfg })); } catch (e) { return []; }
+  }
+  return load('wyrm.wsPresets', []);
+}
+export async function saveWorkspacePreset(name, cfg) {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb);
+    if (me) { try { await pb.collection('workspace_presets').create({ user: me.id, name, cfg }); } catch (e) {} }
+    return;
+  }
+  const list = load('wyrm.wsPresets', []);
+  save('wyrm.wsPresets', [...list.filter(p => p.name !== name), { id: uid('w'), name, cfg }]);
+}

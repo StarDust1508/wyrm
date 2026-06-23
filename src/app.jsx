@@ -1013,6 +1013,12 @@ function Reader({ go, ctx, setCtx }) {
 }
 
 /* ---------------- COMPOSE / FORK ---------------- */
+// дефолтные пресеты раскладки верстка «из коробки»
+const DESK_PRESETS = [
+  { name: 'Черновик',  cfg: { left: false, right: true,  bottom: true,  focus: false, goal: 500 } },
+  { name: 'Редактура', cfg: { left: true,  right: true,  bottom: false, focus: false, goal: 0 } },
+  { name: 'Фокус',     cfg: { left: false, right: false, bottom: false, focus: true,  goal: 1000 } },
+];
 function Compose({ go, ctx, setCtx }) {
   const { CHARACTERS, TAGS } = window.WYRM;
   const storyId = ctx.story || 'ashes';
@@ -1038,6 +1044,16 @@ function Compose({ go, ctx, setCtx }) {
   const allTags = Object.keys(TAGS);
 
   const toggleTag = t => setTags(s => s.includes(t) ? s.filter(x => x !== t) : (s.length < 4 ? [...s, t] : s));
+  // ---- верстак писателя: доки, заметки, пресеты, цель по словам ----
+  const [desk, setDesk] = useState(() => store.getWorkspaceCfg());
+  const [notes, setNotes] = useState(() => wyrmLoad('wyrm.draftNotes', ''));
+  const [presets, setPresets] = useState(DESK_PRESETS);
+  useEffect(() => { store.listWorkspacePresets().then(p => setPresets(p && p.length ? [...DESK_PRESETS, ...p] : DESK_PRESETS)); }, []);
+  const setDeskCfg = (patch) => setDesk(d => { const n = { ...d, ...patch }; store.saveWorkspaceCfg(n); return n; });
+  const togglePanel = (k) => setDeskCfg({ [k]: !desk[k] });
+  const savePreset = async () => { const name = (typeof prompt !== 'undefined') && prompt('Название раскладки'); if (!name) return; await store.saveWorkspacePreset(name, desk); setPresets(p => [...p.filter(x => x.name !== name), { name, cfg: { ...desk } }]); };
+  const saveNotes = (v) => { setNotes(v); wyrmSave('wyrm.draftNotes', v); };
+  const goalPct = desk.goal ? Math.min(100, Math.round(words / desk.goal * 100)) : 0;
   const slug = (s) => (s || '').toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kniga';
   const resetForm = () => { setDone(false); setTitle(''); setBody(''); setSynopsis(''); setNewId(null); setBookId(null); };
 
@@ -1158,60 +1174,121 @@ function Compose({ go, ctx, setCtx }) {
     </div>
   );
 
+  const storyNodes = window.WYRM.nodesFor(storyId);
+  const storyTitle = ((window.WYRM.STORIES || []).find(s => s.id === storyId) || {}).title || parent.title || 'Древо';
+  const deskCols = [desk.left && !desk.focus ? '230px' : null, 'minmax(0,1fr)', desk.right && !desk.focus ? '320px' : null].filter(Boolean).join(' ');
+  const TOGGLES = [['left', 'Навигатор', 'branch'], ['right', 'Свойства', 'sliders'], ['bottom', 'Заметки', 'quill'], ['focus', 'Фокус', 'eye']];
+
   return (
-    <div className="view wrap" style={{ padding: 'clamp(26px,4vh,48px) 0 90px' }}>
+    <div className="view wrap" style={{ padding: 'clamp(14px,2.5vh,26px) 0 90px' }}>
       <ModeToggle />
-      <button className="mono path-crumb" onClick={() => go('reader', { story: storyId })} style={{ color: 'var(--ink-3)', display: 'inline-flex', gap: 6, alignItems: 'center', marginBottom: 22 }}><Icon name="arrowL" size={13} />назад к древу</button>
-      <div className="compose-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 320px', gap: 28, alignItems: 'start' }}>
-        {/* editor */}
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 12, color: 'var(--accent)' }}>Развилка · а что, если…</div>
-          <h1 className="display" style={{ fontSize: 'clamp(1.9rem,4vw,3rem)', marginBottom: 18 }}>Новая ветвь истории</h1>
 
-          {/* parent context (locked) */}
-          <div className="card" style={{ padding: '14px 16px', marginBottom: 18, borderLeft: '2px solid var(--accent)' }}>
-            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 6 }}>ветвишься от · глава {parent.id.toUpperCase()} «{parent.title}»</div>
-            <p className="serif-italic" style={{ color: 'var(--ink-2)', fontSize: '.94rem' }}>…{parent.excerpt.slice(-150)}</p>
-          </div>
+      {/* ── панель верстка: доки · пресеты · цель · публикация ── */}
+      <div className="desk-bar">
+        <button className="icon-btn" title="К древу" onClick={() => go('reader', { story: storyId })}><Icon name="arrowL" size={16} /></button>
+        <span className="desk-sep" />
+        {TOGGLES.map(([k, l, ic]) => (
+          <button key={k} className="btn btn-sm desk-toggle" data-on={!!desk[k]} onClick={() => togglePanel(k)} title={l}>
+            <Icon name={ic} size={13} /><span className="desk-toggle-l">{l}</span>
+          </button>
+        ))}
+        <span className="desk-sep" />
+        <select className="mono" value="" onChange={e => { const p = presets.find(x => x.name === e.target.value); if (p) setDeskCfg(p.cfg); }}
+          style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 4, padding: '5px 8px', fontSize: '.62rem' }}>
+          <option value="">пресет раскладки…</option>
+          {presets.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+        </select>
+        <button className="mono path-crumb" onClick={savePreset} style={{ fontSize: '.56rem', color: 'var(--accent)' }}>＋ сохранить</button>
+        <span style={{ flex: 1 }} />
+        {desk.goal > 0 && (
+          <span title="Цель по словам" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 120 }}>
+            <span className="mono" style={{ fontSize: '.54rem', color: goalPct >= 100 ? 'var(--gold)' : 'var(--ink-3)' }}>{words}/{desk.goal}</span>
+            <span style={{ flex: 1, height: 4, background: 'var(--line-soft)', borderRadius: 4, overflow: 'hidden', minWidth: 60 }}>
+              <span style={{ display: 'block', width: goalPct + '%', height: '100%', background: goalPct >= 100 ? 'var(--gold)' : 'var(--accent)' }} />
+            </span>
+          </span>
+        )}
+        <button className="btn btn-primary btn-sm" onClick={publish} disabled={!plain} style={{ opacity: plain ? 1 : .5 }}>
+          <Icon name="branch" size={14} />Опубликовать
+        </button>
+      </div>
 
-          <input className="compose-input display" value={title} onChange={e => setTitle(e.target.value)} placeholder="Название твоей главы"
-            style={{ width: '100%', fontSize: '1.5rem', background: 'transparent', border: 'none', borderBottom: 'var(--rule-style)', padding: '8px 2px 12px', marginBottom: 18, color: 'var(--ink)', outline: 'none' }} />
-
-          <RichEditor initialHtml={body} onChange={setBody}
-            placeholder="Здесь развилка расходится. Кейра делает другой выбор — и история сворачивает в твою сторону. Пиши, форматируй или импортируй готовый документ…" />
-          <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginTop: 8 }}>{words} слов · можно импортировать .docx / .txt</div>
-        </div>
-
-        {/* meta sidebar */}
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 84 }}>
-          <div className="card" style={{ padding: 18 }}>
-            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Круг жанров — выбери настроение ветки</div>
-            <GenreWheel selected={tags} onToggle={toggleTag} multi size={236} />
-            {tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>{tags.map(t => <Tag key={t} id={t} />)}</div>}
-          </div>
-
-          <div className="card" style={{ padding: 18 }}>
-            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 4 }}>Судьба героев в твоей ветке</div>
-            <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 12 }}>система обновит карточки автоматически</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {Object.keys(chars).map(cid => (
-                <div key={cid} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ flex: 1, fontSize: '.86rem', fontWeight: 600 }}>{CHARACTERS[cid].name}</span>
-                  <select value={chars[cid]} onChange={e => setChars(s => ({ ...s, [cid]: e.target.value }))}
-                    className="mono" style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '5px 7px', fontSize: '.56rem' }}>
-                    {Object.entries(CHAR_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-                  </select>
-                </div>
+      {/* ── dock-раскладка ── */}
+      <div className="desk" style={{ display: 'grid', gridTemplateColumns: deskCols, gap: 18, alignItems: 'start' }}>
+        {/* ЛЕВЫЙ ДОК — навигатор глав */}
+        {desk.left && !desk.focus && (
+          <aside className="desk-dock" style={{ position: 'sticky', top: 84 }}>
+            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 10 }}>Навигатор · {storyTitle}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: '62vh', overflowY: 'auto' }}>
+              {storyNodes.map(n => (
+                <button key={n.id} onClick={() => setCtx({ ...ctx, forkFrom: n.id, story: storyId })}
+                  className="desk-navitem" data-on={n.id === parent.id} title="ветвиться от этой главы"
+                  style={{ paddingLeft: 8 + (([...ancestorsOf(n.id, byId)].length - 1) * 10) }}>
+                  <Icon name={n.canon ? 'star' : 'branch'} size={11} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</span>
+                </button>
               ))}
             </div>
-          </div>
+          </aside>
+        )}
 
-          <button className="btn btn-primary" onClick={publish} disabled={!plain}
-            style={{ justifyContent: 'center', opacity: plain ? 1 : .5 }}>
-            <Icon name="branch" size={16} />Опубликовать ветку
-          </button>
-          <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>Чужой текст не меняется — создаётся параллельная линия</p>
-        </aside>
+        {/* ЦЕНТР — полотно письма */}
+        <main style={{ minWidth: 0 }}>
+          <div className="eyebrow" style={{ marginBottom: 12, color: 'var(--accent)' }}>Развилка · а что, если…</div>
+          <div className="card" style={{ padding: '12px 14px', marginBottom: 16, borderLeft: '2px solid var(--accent)' }}>
+            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 6 }}>ветвишься от · глава {parent.id.toUpperCase()} «{parent.title}»</div>
+            <p className="serif-italic" style={{ color: 'var(--ink-2)', fontSize: '.92rem' }}>…{(parent.excerpt || '').slice(-150)}</p>
+          </div>
+          <input className="compose-input display" value={title} onChange={e => setTitle(e.target.value)} placeholder="Название твоей главы"
+            style={{ width: '100%', fontSize: '1.5rem', background: 'transparent', border: 'none', borderBottom: 'var(--rule-style)', padding: '8px 2px 12px', marginBottom: 16, color: 'var(--ink)', outline: 'none' }} />
+          <RichEditor initialHtml={body} onChange={setBody}
+            placeholder="Здесь развилка расходится. Кейра делает другой выбор — и история сворачивает в твою сторону. Пиши, форматируй или импортируй готовый документ…"
+            minHeight={desk.focus ? 460 : 340} />
+          <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginTop: 8 }}>{words} слов{desk.goal > 0 ? ` · цель ${desk.goal}` : ''} · можно импортировать .docx / .txt</div>
+
+          {/* НИЖНИЙ ДОК — заметки + цель */}
+          {desk.bottom && !desk.focus && (
+            <div className="card" style={{ padding: 16, marginTop: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>Заметки к черновику (не публикуются)</span>
+                <label className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  цель по словам <input type="number" min="0" step="100" value={desk.goal} onChange={e => setDeskCfg({ goal: Math.max(0, +e.target.value || 0) })}
+                    style={{ width: 70, background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '3px 6px', fontSize: '.6rem' }} />
+                </label>
+              </div>
+              <textarea className="compose-input" value={notes} onChange={e => saveNotes(e.target.value)} rows={4}
+                placeholder="Идеи, зацепки, что не забыть…" style={{ width: '100%', resize: 'vertical' }} />
+            </div>
+          )}
+        </main>
+
+        {/* ПРАВЫЙ ДОК — свойства: жанры + судьбы героев */}
+        {desk.right && !desk.focus && (
+          <aside className="desk-dock" style={{ display: 'flex', flexDirection: 'column', gap: 16, position: 'sticky', top: 84 }}>
+            <div className="card" style={{ padding: 18 }}>
+              <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Круг жанров — настроение ветки</div>
+              <GenreWheel selected={tags} onToggle={toggleTag} multi size={224} />
+              {tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', marginTop: 12 }}>{tags.map(t => <Tag key={t} id={t} />)}</div>}
+            </div>
+            {Object.keys(chars).length > 0 && (
+              <div className="card" style={{ padding: 18 }}>
+                <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 12 }}>Судьба героев в твоей ветке</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {Object.keys(chars).map(cid => (
+                    <div key={cid} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ flex: 1, fontSize: '.86rem', fontWeight: 600 }}>{(CHARACTERS[cid] || {}).name || cid}</span>
+                      <select value={chars[cid]} onChange={e => setChars(s => ({ ...s, [cid]: e.target.value }))}
+                        className="mono" style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '5px 7px', fontSize: '.56rem' }}>
+                        {Object.entries(CHAR_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>Чужой текст не меняется — создаётся параллельная линия</p>
+          </aside>
+        )}
       </div>
     </div>
   );

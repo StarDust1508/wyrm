@@ -1361,3 +1361,21 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   background:radial-gradient(120% 80% at 50% -10%, transparent 60%, oklch(0 0 0 / .05));
   mix-blend-mode:multiply; }
 [data-theme="night"] body::after{ background:radial-gradient(120% 85% at 50% -10%, transparent 55%, oklch(0 0 0 / .35)); mix-blend-mode:normal; }
+
+/* ---------- writer workspace (верстак) ---------- */
+.desk-bar{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:10px 14px; margin-bottom:18px;
+  border:var(--rule-style); border-radius:12px; background:color-mix(in oklab, var(--bg) 75%, transparent);
+  position:sticky; top:62px; z-index:20; backdrop-filter:blur(10px); }
+.desk-sep{ width:1px; height:20px; background:var(--line); flex:0 0 auto; }
+.desk-toggle{ color:var(--ink-3); }
+.desk-toggle[data-on="true"]{ background:var(--bg-3); color:var(--ink); border-color:var(--ink-3); }
+.desk-dock{ min-width:0; }
+.desk-navitem{ display:flex; align-items:center; gap:7px; width:100%; text-align:left; padding:6px 8px;
+  border-radius:5px; font-size:.8rem; color:var(--ink-2); transition:.18s var(--ease); }
+.desk-navitem:hover{ background:var(--bg-3); color:var(--ink); }
+.desk-navitem[data-on="true"]{ background:var(--bg-3); color:var(--accent); }
+@media (max-width: 900px){
+  .desk{ grid-template-columns:1fr !important; }
+  .desk-dock{ position:static !important; max-width:none; }
+  .desk-toggle-l{ display:none; }
+}
