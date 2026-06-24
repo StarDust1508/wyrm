@@ -84,7 +84,7 @@ export async function currentUser() {
     const r = authRecord(pb); if (!r) return null;
     const handle = r.handle || (r.email || 'автор').split('@')[0];
     const avatar = r.avatar ? `${PB_URL}/api/files/users/${r.id}/${r.avatar}` : null;
-    return { id: r.id, email: r.email, name: r.name || handle, handle, role: r.role || 'user', reputation: r.reputation || 0, avatar };
+    return { id: r.id, email: r.email, name: r.name || handle, handle, role: r.role || 'user', reputation: r.reputation || 0, verified: !!r.verified, avatar };
   }
   const u = load('wyrm.user', null);
   return u ? { role: 'user', reputation: 0, ...u } : null;
@@ -225,7 +225,7 @@ export async function addPost(p) {
   }
   const post = { id: uid('u'), ts: Date.now(), reacts: { flame: 0, star: 0 },
     author: p.author, kind: p.kind || 'post', text: p.text, tags: p.tags || [], ref: p.ref || null,
-    community: p.community || null, repostOf: p.repostOf || null };
+    media: p.media || null, community: p.community || null, repostOf: p.repostOf || null };
   save('wyrm.feed', [post, ...load('wyrm.feed', [])]);
   return { ...post, likeCount: 0, saveCount: 0, commentCount: 0, repostCount: 0, likedByMe: false, savedByMe: false };
 }
@@ -258,6 +258,24 @@ export async function toggleReact(postId, kind = 'like') {
 export async function repost(post, author) {
   return addPost({ author, kind: 'post', text: post.text, tags: post.tags || [], ref: post.ref || null,
     community: post.community || null, repostOf: post.id });
+}
+
+// закладки текущего пользователя (реакции kind='save') → Profile «Закладки»
+export async function listBookmarks() {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
+    try {
+      const ls = await pb.collection('likes').getFullList({ filter: pb.filter('user={:u}&&kind={:k}', { u: me.id, k: 'save' }), sort: '-created' });
+      const ids = ls.map(l => l.post); if (!ids.length) return [];
+      const posts = await Promise.all(ids.map(id => pb.collection('posts').getOne(id).catch(() => null)));
+      const { liked, saved } = await likedSaved(pb, ids);
+      return posts.filter(Boolean).map(p => mapPost(p, liked, saved));
+    } catch (e) { return []; }
+  }
+  const likes = load('wyrm.likes', {});
+  const ids = Object.keys(likes).filter(k => k.startsWith('s_') && likes[k]).map(k => k.slice(2));
+  const all = decorate(localPosts(), likes, load('wyrm.comments', {}));
+  return ids.map(id => all.find(p => p.id === id)).filter(Boolean);
 }
 
 export async function listComments(postId) {
@@ -647,6 +665,31 @@ export async function getAuthToken() {
     return pb && pb.authStore.isValid ? pb.authStore.token : null;
   }
   return null;
+}
+
+/* ============================================================
+   READER CUTS — «Мои версии»: сохранённые пути сборки читателя.
+   PB-коллекция reader_cuts (есть в миграциях), иначе wyrm.cuts.
+   ============================================================ */
+export async function saveCut(story, path, title) {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) throw new Error('Нужно войти');
+    try { const r = await pb.collection('reader_cuts').create({ user: me.id, story, path, title: title || 'Без названия' }); return { id: r.id, story, path, title: title || 'Без названия', ts: Date.now() }; } catch (e) { return null; }
+  }
+  const cut = { id: uid('c'), story, path, title: title || 'Без названия', ts: Date.now() };
+  save('wyrm.cuts', [cut, ...load('wyrm.cuts', [])]);
+  return cut;
+}
+export async function listCuts() {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
+    try { const r = await pb.collection('reader_cuts').getFullList({ filter: pb.filter('user={:u}', { u: me.id }), sort: '-created' }); return r.map(x => ({ id: x.id, story: x.story, path: x.path, title: x.title, ts: Date.parse(x.created) || Date.now() })); } catch (e) { return []; }
+  }
+  return load('wyrm.cuts', []);
+}
+export async function deleteCut(id) {
+  if (enabled) { const pb = await pbClient(); try { await pb.collection('reader_cuts').delete(id); } catch (e) {} return; }
+  save('wyrm.cuts', load('wyrm.cuts', []).filter(c => c.id !== id));
 }
 
 /* ============================================================

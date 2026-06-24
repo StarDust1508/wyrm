@@ -977,6 +977,12 @@ img{ display:block; max-width:100%; }
 .rule{ border:0; border-top:var(--rule-style); }
 .rule-hard{ border:0; border-top:var(--rule-hard); }
 
+/* email-verification strip + feed live ticker */
+.verify-strip{ display:flex; align-items:center; justify-content:center; gap:14px; flex-wrap:wrap; padding:8px 16px; background:var(--bg-3); border-bottom:1px solid var(--line-hard); font-size:var(--fs-meta); position:relative; z-index:41; }
+.verify-resend{ text-decoration:underline; color:var(--ink-max); text-transform:uppercase; letter-spacing:.08em; }
+.feed-ticker{ display:flex; align-items:center; gap:10px; overflow:hidden; white-space:nowrap; border-top:var(--rule-style); border-bottom:var(--rule-style); padding:7px 0; margin-bottom:22px; font-size:var(--fs-meta); color:var(--ink-3); }
+.feed-ticker b{ color:var(--ink); font-weight:700; }
+
 .wrap{ width:min(100% - 48px, var(--maxw)); margin-inline:auto; }
 
 /* ---------- buttons ---------- */

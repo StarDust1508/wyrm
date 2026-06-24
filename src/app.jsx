@@ -2387,6 +2387,12 @@ function ReadersCut({ go }) {
     if (navigator.clipboard) navigator.clipboard.writeText(link).catch(() => {});
     setExported(true);
   };
+  const [savedMsg, setSavedMsg] = useState(false);
+  const persistCut = async () => {
+    const title = (CUT_PRESETS.find(p => p.id === preset) || {}).label || `Версия · ${path.length} гл.`;
+    try { await store.saveCut('ashes', path, title); setSavedMsg(true); setTimeout(() => setSavedMsg(false), 2200); }
+    catch (e) { wyrmErr(e, 'Войди, чтобы сохранять версии в профиль.'); }
+  };
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(26px,4vh,44px) 0 90px' }}>
@@ -2489,6 +2495,9 @@ function ReadersCut({ go }) {
                 </button>
                 <button className="btn btn-ghost" onClick={shareCut} style={{ width: '100%', justifyContent: 'center' }}>
                   <Icon name="users" size={15} />Поделиться версией
+                </button>
+                <button className="btn btn-ghost" onClick={persistCut} style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
+                  <Icon name="star" size={15} />{savedMsg ? 'Сохранено в профиль ✓' : 'Сохранить версию'}
                 </button>
                 <p className="mono" style={{ fontSize: '.48rem', color: 'var(--ink-3)', textAlign: 'center', marginTop: 10 }}>каждый собранный путь — новый вход на платформу</p>
               </React.Fragment>
@@ -2918,6 +2927,19 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
 
 /* account chip + menu in the nav */
 /* колокольчик уведомлений */
+/* плашка подтверждения почты — показывается, только если сервер вернул verified:false */
+function VerifyStrip({ user }) {
+  const [sent, setSent] = useState(false);
+  return (
+    <div className="verify-strip">
+      <span className="mono">! Подтверди почту <b>{user.email}</b> — мы отправили ссылку.</span>
+      <button className="mono verify-resend" onClick={async () => { try { await store.requestVerification(user.email); setSent(true); } catch (e) {} }}>
+        {sent ? 'отправлено ✓' : 'отправить снова'}
+      </button>
+    </div>
+  );
+}
+
 function NotificationsMenu({ user, go }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
@@ -3091,6 +3113,9 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
   const [kind, setKind] = useState(defaultKind || 'post');
   const [tags, setTags] = useState([]);
   const [showTags, setShowTags] = useState(false);
+  const [media, setMedia] = useState(null);
+  const fileRef = useRef(null);
+  const pickImg = async (e) => { const f = e.target.files && e.target.files[0]; if (f) { try { setMedia(await store.fileToDataURL(f)); } catch (err) {} } e.target.value = ''; };
   const allTags = Object.keys(window.WYRM.TAGS);
   const toggleTag = (t) => setTags(s => s.includes(t) ? s.filter(x => x !== t) : (s.length < 3 ? [...s, t] : s));
   if (!user) {
@@ -3102,9 +3127,9 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
     );
   }
   const submit = () => {
-    const t = text.trim(); if (!t) return;
-    onPost({ author: user.handle || user.name, kind, text: t, tags, ref: null });
-    setText(''); setTags([]); setShowTags(false);
+    const t = text.trim(); if (!t && !media) return;
+    onPost({ author: user.handle || user.name, kind, text: t, tags, ref: null, media });
+    setText(''); setTags([]); setShowTags(false); setMedia(null);
   };
   return (
     <div className="card" style={{ padding: '18px 20px', marginBottom: 26 }}>
@@ -3113,6 +3138,12 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <textarea value={text} onChange={e => setText(e.target.value)} placeholder={placeholder || 'Что нового в твоих историях?'}
             className="compose-input" rows={3} style={{ width: '100%', resize: 'vertical', minHeight: 64 }} />
+          {media && (
+            <div style={{ position: 'relative', marginTop: 12, width: 'fit-content' }}>
+              <img src={media} alt="вложение" style={{ maxHeight: 150, display: 'block', border: '1px solid var(--line)', filter: 'grayscale(1) contrast(1.03)' }} />
+              <button onClick={() => setMedia(null)} className="icon-btn" title="Убрать" style={{ position: 'absolute', top: 5, right: 5, width: 24, height: 24, background: 'var(--bg)' }}><Icon name="x" size={12} /></button>
+            </div>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             {Object.entries(FEED_KINDS).map(([k, v]) => (
               <button key={k} className="tag tag-btn" data-active={kind === k} onClick={() => setKind(k)}>
@@ -3122,7 +3153,11 @@ function FeedComposer({ user, onPost, placeholder, defaultKind, go }) {
             <button className="tag tag-btn" data-active={showTags || tags.length > 0} onClick={() => setShowTags(s => !s)}>
               <Icon name="star" size={11} />Жанры{tags.length ? ' · ' + tags.length : ''}
             </button>
-            <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={submit} disabled={!text.trim()}>
+            <input ref={fileRef} type="file" accept="image/*" onChange={pickImg} style={{ display: 'none' }} />
+            <button className="tag tag-btn" data-active={!!media} onClick={() => fileRef.current && fileRef.current.click()}>
+              <Icon name="plus" size={11} />Картинка
+            </button>
+            <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={submit} disabled={!text.trim() && !media}>
               <Icon name="quill" size={14} />Опубликовать
             </button>
           </div>
@@ -3200,7 +3235,14 @@ function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName, 
         )}
       </div>
 
-      <p style={{ color: 'var(--ink)', lineHeight: 1.6, marginBottom: post.ref || (post.tags && post.tags.length) ? 14 : 4 }}>{post.text}</p>
+      <p style={{ color: 'var(--ink)', lineHeight: 1.6, marginBottom: post.media || post.ref || (post.tags && post.tags.length) ? 14 : 4 }}>{post.text}</p>
+
+      {post.media && (
+        <img src={post.media} alt="вложение" loading="lazy"
+          style={{ width: '100%', maxHeight: 420, objectFit: 'cover', display: 'block', border: '1px solid var(--line)', marginBottom: 14, filter: 'grayscale(1) contrast(1.03)', transition: 'filter var(--ms-color) var(--ease-color)' }}
+          onMouseEnter={e => { e.currentTarget.style.filter = 'none'; }}
+          onMouseLeave={e => { e.currentTarget.style.filter = 'grayscale(1) contrast(1.03)'; }} />
+      )}
 
       {post.ref && (
         <button className="path-crumb" onClick={() => go && go('reader', { story: post.ref.story || 'ashes', node: post.ref.node || null })}
@@ -3378,6 +3420,25 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
   );
 }
 
+/* живой тикер активности — крутит последние посты (без нового бэкенда) */
+function FeedTicker({ posts }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    if (posts.length < 2) return;
+    const id = setInterval(() => setI(x => (x + 1) % posts.length), 3200);
+    return () => clearInterval(id);
+  }, [posts.length]);
+  if (!posts.length) return null;
+  const p = posts[i % posts.length];
+  const verb = { branch: 'ветвь', vote: 'голос', discuss: 'спор', post: 'запись' }[p.kind] || 'запись';
+  return (
+    <div className="feed-ticker reveal">
+      <span className="blink" aria-hidden="true">▋</span>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>+ <b>@{p.author}</b> · {verb} · {timeAgo(p.ts)}{p.text ? ' — ' + p.text.slice(0, 64) : ''}</span>
+    </div>
+  );
+}
+
 /* ---------------- ЛЕНТА ---------------- */
 function Feed({ go, user, embedded }) {
   const ref = useReveal();
@@ -3403,6 +3464,8 @@ function Feed({ go, user, embedded }) {
       )}
 
       <FeedComposer user={user} onPost={addPost} go={go} />
+
+      {!loading && posts.length > 0 && <FeedTicker posts={posts} />}
 
       <div className="reveal" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '12px 0', marginBottom: 26 }}>
         {kinds.map(([k, l]) => (
@@ -3692,10 +3755,13 @@ function Profile({ go, user }) {
   const { posts, toggleReact, repostPost, removePost, hasMore, loadMore, loadingMore, loading: feedLoading } = useFeed(user ? { authorHandle: myHandle } : { authors: [] });
   const { communities, joined } = useCommunities();
   const [stories, setStories] = useState([]);
+  const [bookmarks, setBookmarks] = useState([]);
+  const [cuts, setCuts] = useState([]);
   const [tab, setTab] = useState('books');
   const [avatarUrl, setAvatarUrl] = useState((user && user.avatar) || null);
   const onAvatar = async (file) => { if (!file) return; try { const url = await store.updateAvatar(file); setAvatarUrl(url); } catch (e) { wyrmErr(e, 'Не удалось загрузить аватар.'); } };
   useEffect(() => { let on = true; store.listStories().then(s => { if (on) setStories(s || []); }); return () => { on = false; }; }, []);
+  useEffect(() => { let on = true; store.listBookmarks().then(b => { if (on) setBookmarks(b || []); }); store.listCuts().then(c => { if (on) setCuts(c || []); }); return () => { on = false; }; }, [tab]);
   if (!user) {
     return (
       <div className="view wrap" style={{ padding: 'clamp(40px,8vh,90px) 0 90px', textAlign: 'center' }}>
@@ -3711,7 +3777,7 @@ function Profile({ go, user }) {
   const myCommunities = communities.filter(c => joined.includes(c.id));
   const doRepost = (post) => repostPost(post, handle);
   const stat = (n, l) => (<div><div className="display" style={{ fontSize: '1.6rem' }}>{n}</div><div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{l}</div></div>);
-  const tabs = [['books', 'Книги · ' + myStories.length], ['posts', 'Посты · ' + myPosts.length], ['communities', 'Сообщества · ' + myCommunities.length]];
+  const tabs = [['books', 'Книги · ' + myStories.length], ['posts', 'Посты · ' + myPosts.length], ['communities', 'Сообщества · ' + myCommunities.length], ['saved', 'Закладки · ' + bookmarks.length], ['cuts', 'Мои версии · ' + cuts.length]];
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: 'clamp(34px,6vh,64px) 0 100px' }}>
@@ -3773,6 +3839,29 @@ function Profile({ go, user }) {
                   <h3 className="display" style={{ fontSize: '1.15rem' }}>{c.name}</h3>
                   <p style={{ color: 'var(--ink-2)', fontSize: '.84rem' }}>{c.blurb}</p>
                 </button>
+              ))}
+            </div>
+      )}
+      {tab === 'saved' && (
+        bookmarks.length === 0
+          ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Нет сохранённых постов. Жми ★ под любым постом в ленте.</p>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 720 }}>
+              {bookmarks.map(p => <PostCard key={p.id} post={p} user={user} onReact={toggleReact} onRepost={doRepost} onDelete={removePost} go={go} communityName={(communities.find(c => c.id === p.community) || {}).name} />)}
+            </div>
+      )}
+      {tab === 'cuts' && (
+        cuts.length === 0
+          ? <p className="mono" style={{ color: 'var(--ink-3)' }}>Нет сохранённых версий. Собери свою в <button className="path-crumb" style={{ color: 'var(--ink)' }} onClick={() => go('cut')}>«Сборке читателя» →</button></p>
+          : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 18 }}>
+              {cuts.map(c => (
+                <div key={c.id} className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <h3 className="display" style={{ fontSize: '1.1rem' }}>{c.title}</h3>
+                  <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>{(c.path || []).length} гл. · {c.story}</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button className="btn btn-sm" onClick={() => go('reader', { story: c.story })}>Открыть</button>
+                    <button className="btn btn-sm btn-ghost" onClick={async () => { await store.deleteCut(c.id); setCuts(cs => cs.filter(x => x.id !== c.id)); }}>Удалить</button>
+                  </div>
+                </div>
               ))}
             </div>
       )}
@@ -3911,6 +4000,8 @@ function App() {
   return (
     <React.Fragment>
       <div className="atmos" style={{ opacity: atmos ? 1 : 0 }} />
+
+      {user && user.verified === false && <VerifyStrip user={user} />}
 
       {/* Минимальная шапка: логотип (→ ворота) + бургер. Никакой горизонтальной
           навигации — вся навигация в выезжающем меню (на любом размере экрана). */}
