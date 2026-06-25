@@ -961,7 +961,7 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 /* Иггдрасиль — мировое древо, центрировано на кресте, крона/корни зеркальны.
    Крупнее (120% высоты) и легче (фоновое) — не спорит с текстом. */
 .gate-tree{
-  position:absolute; top:50%; left:50%; height:128%; aspect-ratio:1; z-index:0;
+  position:absolute; top:50%; left:50%; height:104%; aspect-ratio:1; z-index:0;
   opacity:.4; pointer-events:none;
   transform:translate(-50%,-50%) translateY(calc(var(--gy,0px) * .12));
 }
@@ -1046,7 +1046,7 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   background:none; border:0; padding:0; margin:0; cursor:pointer; pointer-events:auto;
   display:flex; flex-direction:column; align-items:center; line-height:.82;
   font-family:var(--display); font-weight:700; color:var(--g-ink);
-  font-size:clamp(2.4rem,15vw,11rem); letter-spacing:-.035em;
+  font-size:clamp(3.4rem,22vw,16rem); letter-spacing:-.035em;
   filter:blur(8px); transition:filter .5s var(--g-ease);
   animation:gate-float 7.5s ease-in-out infinite;        /* `translate` property */
 }
@@ -1115,7 +1115,7 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 /* tighten on small screens so the (now larger) wordmark never collides with corners */
 @media (max-width:560px){
   .gate-corner-sub{ display:none; }
-  .gate-word{ font-size:clamp(1.8rem,15vw,4.5rem); }
+  .gate-word{ font-size:clamp(2.4rem,22vw,6rem); }
 }
 
 /* ---------- topbar: «не панель», а плавающие логотип + бургер ---------- */
