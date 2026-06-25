@@ -668,6 +668,68 @@ export async function getAuthToken() {
 }
 
 /* ============================================================
+   MERGE REQUESTS — Tier-3 PR-воркфлоу для Narrative Merge.
+   PB-коллекция merge_requests (story/source/target/status/hunks/approvals),
+   иначе wyrm.mrs. payload (готовая нода + мета) хранится в hunks(json).
+   ============================================================ */
+export async function listMergeRequests(story) {
+  if (enabled) {
+    const pb = await pbClient();
+    try {
+      const filter = story ? pb.filter('story={:s}', { s: story }) : '';
+      const r = await pb.collection('merge_requests').getFullList({ sort: '-created', ...(filter ? { filter } : {}) });
+      return r.map(x => ({ id: x.id, story: x.story, source: x.source, target: x.target, status: x.status, approvals: x.approvals || [], ...(x.hunks || {}), ts: Date.parse(x.created) || Date.now() }));
+    } catch (e) { return []; }
+  }
+  const all = load('wyrm.mrs', []);
+  return story ? all.filter(m => m.story === story) : all;
+}
+export async function createMergeRequest(mr) {
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb);
+    try {
+      const payload = { title: mr.title, applied: mr.applied, sourceTitle: mr.sourceTitle, targetTitle: mr.targetTitle, node: mr.node, author: me ? me.id : null };
+      const r = await pb.collection('merge_requests').create({ story: mr.story, source: mr.source, target: mr.target, status: 'open', hunks: payload, approvals: [] });
+      return { id: r.id, story: mr.story, source: mr.source, target: mr.target, status: 'open', approvals: [], ...payload, ts: Date.now() };
+    } catch (e) { return null; }
+  }
+  const me = load('wyrm.user', null);
+  const rec = { id: uid('mr'), story: mr.story, source: mr.source, target: mr.target, status: 'open', approvals: [],
+    title: mr.title, applied: mr.applied, sourceTitle: mr.sourceTitle, targetTitle: mr.targetTitle, node: mr.node,
+    author: (me && (me.handle || me.name)) || 'аноним', ts: Date.now() };
+  save('wyrm.mrs', [rec, ...load('wyrm.mrs', [])]);
+  return rec;
+}
+export async function approveMergeRequest(id, approver) {
+  if (enabled) {
+    const pb = await pbClient();
+    try {
+      const r = await pb.collection('merge_requests').getOne(id);
+      const ap = (r.approvals || []).includes(approver) ? r.approvals.filter(a => a !== approver) : [...(r.approvals || []), approver];
+      const status = r.status === 'merged' ? 'merged' : (ap.length >= 2 ? 'approved' : 'open');
+      await pb.collection('merge_requests').update(id, { approvals: ap, status });
+      return { id, approvals: ap, status };
+    } catch (e) { return null; }
+  }
+  const next = load('wyrm.mrs', []).map(m => {
+    if (m.id !== id) return m;
+    const ap = m.approvals.includes(approver) ? m.approvals.filter(a => a !== approver) : [...m.approvals, approver];
+    return { ...m, approvals: ap, status: m.status === 'merged' ? 'merged' : (ap.length >= 2 ? 'approved' : 'open') };
+  });
+  save('wyrm.mrs', next);
+  return next.find(m => m.id === id);
+}
+export async function mergeMergeRequest(id) {
+  const list = enabled ? await listMergeRequests() : load('wyrm.mrs', []);
+  const mr = list.find(m => m.id === id);
+  if (!mr || !mr.node) return null;
+  await addNode(mr.node);
+  if (enabled) { const pb = await pbClient(); try { await pb.collection('merge_requests').update(id, { status: 'merged' }); } catch (e) {} }
+  else { save('wyrm.mrs', load('wyrm.mrs', []).map(m => m.id === id ? { ...m, status: 'merged' } : m)); }
+  return mr;
+}
+
+/* ============================================================
    READER CUTS — «Мои версии»: сохранённые пути сборки читателя.
    PB-коллекция reader_cuts (есть в миграциях), иначе wyrm.cuts.
    ============================================================ */

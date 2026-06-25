@@ -1586,19 +1586,20 @@ function Merge({ go }) {
   const applied = changes.filter(h => h.type === 'conflict' ? dec[h.id] === 'them' : dec[h.id] !== 'reject').length;
 
   const REVIEWERS = ['eira_noct', 'mara.q', 'nyx___'];
-  const [approvals, setApprovals] = useState({});
-  const approvedCount = Object.values(approvals).filter(Boolean).length;
-  const toggleApprove = (a) => setApprovals(s => ({ ...s, [a]: !s[a] }));
+  const MR_STATUS = { open: 'ОТКРЫТ', approved: 'ОДОБРЕН', merged: 'СЛИТ', rejected: 'ОТКЛОНЁН' };
+  const [mrs, setMrs] = useState([]);
+  const reloadMrs = () => store.listMergeRequests(storyId).then(r => setMrs(r || []));
+  useEffect(() => { reloadMrs(); }, [storyId, merged]);
 
   const checks = [
     { ok: !!source && !!target && source.id !== target.id, label: source && target && source.id !== target.id ? 'Выбраны две разные главы' : 'Выбери источник и цель' },
     { ok: applied >= 1, label: applied >= 1 ? applied + ' правок к применению' : 'Нет принятых правок' },
-    { ok: approvedCount >= 2, label: approvedCount + ' / 2 ревьюера одобрили' },
   ];
-  const ready = checks.every(c => c.ok);
+  const canPropose = checks.every(c => c.ok);
 
-  const doMerge = async () => {
-    if (!ready || !target) return;
+  // создать запрос на слияние (PR) — готовим ноду, но НЕ пишем в древо до одобрения
+  const createMR = async () => {
+    if (!canPropose || !target || !source) return;
     const mergedText = diff.applyMerge(hunks, dec);
     const me = wyrmLoad('wyrm.user', null);
     const title = (target.title || 'Глава') + ' · слияние';
@@ -1610,10 +1611,12 @@ function Merge({ go }) {
       html: cleanHtml('<p>' + mergedText.replace(/</g, '&lt;') + '</p>'), chars: { ...(target.chars || {}) },
     };
     try {
-      await store.addNode(node);
-      setMergedTitle(title); setMerged(true);
-    } catch (e) { wyrmErr(e, 'Не удалось слить ветви.'); }
+      await store.createMergeRequest({ story: storyId, source: source.id, target: target.id, title, applied, sourceTitle: source.title, targetTitle: target.title, node });
+      setMergedTitle(title); setMerged(true); reloadMrs();
+    } catch (e) { wyrmErr(e, 'Не удалось создать запрос.'); }
   };
+  const approveMR = async (id, who) => { await store.approveMergeRequest(id, who); reloadMrs(); };
+  const doMergeMR = async (id) => { try { await store.mergeMergeRequest(id); reloadMrs(); } catch (e) { wyrmErr(e, 'Не удалось слить.'); } };
 
   const nodeOpts = nodes.map(n => <option key={n.id} value={n.id}>{(n.canon ? '★ ' : '') + (n.title || n.id)}</option>);
 
@@ -1629,7 +1632,7 @@ function Merge({ go }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 260 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <span className="mono" style={{ fontSize: '.56rem', padding: '.3em .6em', borderRadius: 2, background: ready ? 'color-mix(in oklab, var(--ink-max) 15%, transparent)' : 'color-mix(in oklab, var(--ink-max) 15%, transparent)', color: ready ? 'var(--ink)' : 'var(--ink)' }}>{ready ? '● готово к слиянию' : '● нужно ревью'}</span>
+              <span className="mono" style={{ fontSize: '.56rem', padding: '.3em .6em', borderRadius: 0, background: 'color-mix(in oklab, var(--ink-max) 12%, transparent)', color: 'var(--ink)' }}>{canPropose ? '● готов к запросу' : '● собери дифф'}</span>
               <select value={storyId} onChange={e => setStoryId(e.target.value)} className="mono" style={{ background: 'var(--bg-3)', color: 'var(--ink)', border: 'var(--rule-style)', borderRadius: 3, padding: '4px 7px', fontSize: '.6rem' }}>
                 {STORIES.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
               </select>
@@ -1681,36 +1684,49 @@ function Merge({ go }) {
             </div>
           </div>
 
-          <div className="card" style={{ padding: 18 }}>
-            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 10 }}>Ревьюеры · нажми, чтобы одобрить</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {REVIEWERS.map(a => {
-                const ok = !!approvals[a];
-                return (
-                  <button key={a} onClick={() => toggleApprove(a)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderRadius: 4, border: '1px solid ' + (ok ? 'color-mix(in oklab, var(--ink-max) 50%, transparent)' : 'var(--line-soft)'), background: ok ? 'color-mix(in oklab, var(--ink-max) 10%, transparent)' : 'transparent', textAlign: 'left' }}>
-                    <Avatar name={a} size={26} />
-                    <span style={{ flex: 1, fontSize: '.82rem' }}>@{a}</span>
-                    <span style={{ color: ok ? 'var(--ink)' : 'var(--ink-3)' }}><Icon name={ok ? 'check' : 'plus'} size={14} /></span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <button className="btn btn-primary" disabled={!canPropose} onClick={createMR}
+            style={{ justifyContent: 'center', opacity: canPropose ? 1 : .5 }}>
+            <Icon name="branch" size={16} />Создать запрос на слияние
+          </button>
+          {merged && <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-2)', textAlign: 'center' }}>Запрос «{mergedTitle}» создан — одобри ≥2 ревьюерами и слей ниже.</p>}
 
-          {merged ? (
-            <div className="card" style={{ padding: 18, textAlign: 'center', borderColor: 'var(--gold)' }}>
-              <span style={{ color: 'var(--gold)' }}><Icon name="branch" size={22} /></span>
-              <div className="display" style={{ fontSize: '1.1rem', margin: '8px 0 4px' }}>Слияние записано</div>
-              <p className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>Создана глава «{mergedTitle}» с {applied} применёнными правками</p>
-              <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => go('reader', { story: storyId, node: targetId })}>К древу<Icon name="arrow" size={14} /></button>
-            </div>
-          ) : (
-            <button className="btn btn-primary" disabled={!ready} onClick={doMerge}
-              style={{ justifyContent: 'center', opacity: ready ? 1 : .5 }}>
-              <Icon name="branch" size={16} />{ready ? 'Слить в канон' : 'Заверши ревью'}
-            </button>
-          )}
-          <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>Чужой текст не меняется — результат сохраняется новой главой</p>
+          {/* инбокс запросов слияния (Tier-3 PR-воркфлоу) */}
+          <div className="card" style={{ padding: 16 }}>
+            <div className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', marginBottom: 12 }}>Запросы слияния · {mrs.length}</div>
+            {mrs.length === 0
+              ? <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>// пусто — собери дифф и создай первый</div>
+              : <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {mrs.map(mr => {
+                    const ap = mr.approvals || [];
+                    return (
+                      <div key={mr.id} style={{ borderTop: 'var(--rule-style)', paddingTop: 11 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: '.82rem', fontWeight: 700, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{mr.title}</span>
+                          <span className="mono" style={{ fontSize: '.44rem', padding: '.25em .5em', border: '1px solid var(--line-hard)', background: mr.status === 'merged' ? 'var(--ink-max)' : 'transparent', color: mr.status === 'merged' ? 'var(--accent-ink)' : 'var(--ink)', flex: '0 0 auto', letterSpacing: '.08em' }}>{MR_STATUS[mr.status] || mr.status}</span>
+                        </div>
+                        <div className="mono" style={{ fontSize: '.46rem', color: 'var(--ink-3)', margin: '4px 0 8px' }}>{mr.applied || 0} правок · {ap.length}/2 одобрений</div>
+                        {mr.status !== 'merged' ? (
+                          <React.Fragment>
+                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
+                              {REVIEWERS.map(a => (
+                                <button key={a} className="tag tag-btn" data-active={ap.includes(a)} onClick={() => approveMR(mr.id, a)} style={{ fontSize: '.46rem' }}>
+                                  <Icon name={ap.includes(a) ? 'check' : 'plus'} size={9} />@{a}
+                                </button>
+                              ))}
+                            </div>
+                            <button className="btn btn-sm" disabled={ap.length < 2} onClick={() => doMergeMR(mr.id)} style={{ width: '100%', justifyContent: 'center', opacity: ap.length >= 2 ? 1 : .5 }}>
+                              <Icon name="branch" size={13} />Слить в канон
+                            </button>
+                          </React.Fragment>
+                        ) : (
+                          <button className="btn btn-sm btn-ghost" onClick={() => go('reader', { story: storyId, node: mr.target })} style={{ width: '100%', justifyContent: 'center' }}>К древу<Icon name="arrow" size={13} /></button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>}
+          </div>
+          <p className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', textAlign: 'center' }}>Чужой текст не меняется — слияние сохраняется новой главой</p>
         </aside>
       </div>
     </div>
