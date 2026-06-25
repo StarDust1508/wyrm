@@ -400,10 +400,35 @@ function ancestorsOf(id, byId) {
   return set;
 }
 
+/* маленький (i) с поповером-объяснением */
+function InfoDot({ title, children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', h); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', h); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  return (
+    <span ref={ref} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button className="info-dot" aria-label="Что это?" aria-expanded={open} onClick={() => setOpen(o => !o)}>i</button>
+      {open && (
+        <span className="info-pop" role="tooltip">
+          {title && <strong style={{ display: 'block', marginBottom: 8, fontSize: '.62rem', textTransform: 'uppercase', letterSpacing: '.1em', color: 'var(--ink)' }}>{title}</strong>}
+          {children}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activeTag, nodes: nodesProp }) {
   const nodes = nodesProp || window.WYRM.NODES;
   const L = useMemo(() => layoutTree(nodes, orientation), [orientation, nodes.length, nodes]);
   const [hover, setHover] = useStateT(null);
+  const [scale, setScale] = useStateT(1);
   const scrollRef = useRefT(null);
   const NODE_W = 196;
 
@@ -428,8 +453,30 @@ function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activ
     return () => { el.removeEventListener('pointerdown', md); window.removeEventListener('pointermove', mm); window.removeEventListener('pointerup', mu); };
   }, []);
 
+  // wheel zoom — cursor over the field zooms the tree (not the page); anchors on the cursor
+  useEffectT(() => {
+    const el = scrollRef.current; if (!el) return;
+    const onWheel = (e) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const cxp = e.clientX - rect.left, cyp = e.clientY - rect.top;
+      const px = el.scrollLeft + cxp, py = el.scrollTop + cyp;
+      setScale(prev => {
+        const next = Math.min(2.2, Math.max(0.4, +(prev * (e.deltaY < 0 ? 1.12 : 0.893)).toFixed(3)));
+        const k = next / prev;
+        requestAnimationFrame(() => { el.scrollLeft = px * k - cxp; el.scrollTop = py * k - cyp; });
+        return next;
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
   const hoverPath = hover ? ancestorsOf(hover, L.byId) : null;
   const selPath = selected ? ancestorsOf(selected, L.byId) : null;
+  // direct neighbours of the selected node (for connected-edge + node highlight)
+  const neighbors = new Set();
+  if (selected) L.edges.forEach(e => { if (e.from === selected) neighbors.add(e.to); if (e.to === selected) neighbors.add(e.from); });
 
   const edgePath = (e) => {
     const a = L.coords[e.from], b = L.coords[e.to];
@@ -440,27 +487,31 @@ function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activ
   };
 
   return (
+    <div className="tree-frame">
     <div ref={scrollRef} className="tree-scroll" style={{
       position: 'relative', overflow: 'auto', cursor: 'grab',
-      height: 'clamp(440px, 62vh, 720px)', borderRadius: 6,
-      border: '1px solid var(--line-soft)', background:
+      height: 'clamp(440px, 62vh, 720px)', borderRadius: 0,
+      border: '1px solid var(--line)', background:
         'radial-gradient(60% 50% at 50% 0%, var(--bg-2), var(--bg))',
     }}>
-      {/* subtle grid */}
-      <div style={{ position: 'absolute', inset: 0, width: L.W, height: L.H, pointerEvents: 'none',
-        backgroundImage: 'radial-gradient(var(--line-soft) 1px, transparent 1px)', backgroundSize: '28px 28px', opacity: .5 }} />
-      <div style={{ position: 'relative', width: L.W, height: L.H }}>
+      <div style={{ width: L.W * scale, height: L.H * scale, position: 'relative' }}>
+       <div style={{ position: 'absolute', top: 0, left: 0, width: L.W, height: L.H, transform: `scale(${scale})`, transformOrigin: '0 0' }}>
+        {/* subtle grid */}
+        <div style={{ position: 'absolute', inset: 0, width: L.W, height: L.H, pointerEvents: 'none',
+          backgroundImage: 'radial-gradient(var(--line-soft) 1px, transparent 1px)', backgroundSize: '28px 28px', opacity: .5 }} />
+        <div style={{ position: 'relative', width: L.W, height: L.H }}>
         <svg width={L.W} height={L.H} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
           {L.edges.map((e, i) => {
             const onHover = hoverPath && hoverPath.has(e.from) && hoverPath.has(e.to);
+            const incident = selected && (e.from === selected || e.to === selected);
             const onSel = selPath && selPath.has(e.from) && selPath.has(e.to);
+            const lit = onHover || onSel;
             return (
               <path key={i} d={edgePath(e)} fill="none"
-                stroke={e.canon ? 'var(--gold)' : (onHover || onSel ? 'var(--accent)' : 'var(--line)')}
-                strokeWidth={e.canon ? 2.4 : (onHover || onSel ? 2 : 1.4)}
-                strokeDasharray={e.canon ? 'none' : '1 0'}
-                opacity={e.canon ? 0.95 : (onHover || onSel ? 0.9 : 0.5)}
-                style={{ transition: 'stroke .25s, opacity .25s' }} />
+                stroke={incident ? 'var(--ink-max)' : (e.canon ? 'var(--ink-max)' : (lit ? 'var(--ink)' : 'var(--line)'))}
+                strokeWidth={incident ? 2.8 : (e.canon ? 2.2 : (lit ? 2 : 1.4))}
+                opacity={incident ? 1 : (e.canon ? 0.92 : (lit ? 0.85 : 0.4))}
+                style={{ transition: 'stroke .2s, stroke-width .2s, opacity .2s' }} />
             );
           })}
         </svg>
@@ -469,6 +520,7 @@ function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activ
           const c = L.coords[n.id];
           const dim = activeTag && !n.tags.includes(activeTag);
           const isSel = selected === n.id;
+          const isNeighbor = neighbors.has(n.id);
           const onPath = hoverPath && hoverPath.has(n.id);
           return (
             <button key={n.id} className="tnode"
@@ -478,8 +530,8 @@ function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activ
                 position: 'absolute', left: c.x, top: c.y, width: NODE_W, textAlign: 'left',
                 padding: '11px 12px 12px', borderRadius: 0, cursor: 'pointer',
                 background: 'var(--panel)',
-                border: '1px solid ' + (n.canon ? 'var(--gold)' : isSel ? 'var(--accent)' : 'var(--line)'),
-                boxShadow: n.canon ? 'var(--canon-glow)' : (isSel || onPath ? '0 0 0 1px var(--accent)' : 'var(--node-glow)'),
+                border: '1px solid ' + (isSel || isNeighbor || n.canon ? 'var(--ink-max)' : 'var(--line)'),
+                boxShadow: isSel ? 'inset 0 0 0 2px var(--bg), inset 0 0 0 3px var(--ink-max)' : (onPath ? '0 0 0 1px var(--ink)' : 'none'),
                 opacity: dim ? 0.26 : 1,
                 transform: isSel ? 'translateY(-2px) scale(1.015)' : 'none',
                 transition: 'transform .3s var(--ease), box-shadow .3s, opacity .35s, border-color .25s',
@@ -507,7 +559,15 @@ function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activ
             </button>
           );
         })}
+        </div>
+       </div>
       </div>
+    </div>
+    <div className="tree-zoom">
+      <button className="icon-btn" aria-label="Уменьшить масштаб" onClick={() => setScale(s => Math.max(0.4, +(s * 0.85).toFixed(2)))}><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 7h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" /></svg></button>
+      <button className="mono tree-zoom-pct" title="Сбросить масштаб (1:1)" onClick={() => setScale(1)}>{Math.round(scale * 100)}%</button>
+      <button className="icon-btn" aria-label="Увеличить масштаб" onClick={() => setScale(s => Math.min(2.2, +(s * 1.18).toFixed(2)))}><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 3v8M3 7h8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" /></svg></button>
+    </div>
     </div>
   );
 }
@@ -1092,10 +1152,18 @@ function Reader({ go, ctx, setCtx }) {
       {!readMode && (<React.Fragment>
       {/* toolbar */}
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <span className="mono" style={{ color: 'var(--ink-3)' }}><Icon name="branch" size={13} style={{ verticalAlign: -2 }} /> карта</span>
-        <div style={{ display: 'flex', gap: 4, border: '1px solid var(--line)', borderRadius: 3, padding: 3 }}>
+        <span className="mono" style={{ color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="branch" size={13} style={{ verticalAlign: -2 }} /> карта
+          <InfoDot title="Древо истории — как читать">
+            <p style={{ marginBottom: 8 }}>Карта истории как растущего дерева: каждый блок — <b>глава</b>, линии — её продолжения. Слева направо ветвятся альтернативные судьбы.</p>
+            <p style={{ marginBottom: 8 }}><b>Канон</b> (жирная рамка + ★) — ветвь, лидирующая по голосам читателей. Клик по узлу подсвечивает его и все связанные линии; <b>«Ветвь»</b> на узле — создать развилку «а что, если…».</p>
+            <p style={{ marginBottom: 8 }}><b>Колесо мыши</b> — масштаб (или кнопки ± внизу справа), <b>перетаскивание</b> — панорама.</p>
+            <p style={{ marginBottom: 8 }}><b>Дерево</b> — раскладка сверху-вниз, читается как хронология. <b>Радиально</b> — кольцами от корня в центре: глубина ветвления = радиус, удобно охватить взглядом широкое дерево с множеством веток.</p>
+            <p style={{ margin: 0 }}><b>Фильтр настроения</b> приглушает ветви, не отмеченные выбранным тегом.</p>
+          </InfoDot>
+        </span>
+        <div style={{ display: 'flex', gap: 4, border: '1px solid var(--line)', borderRadius: 0, padding: 3 }}>
           {[['vertical', 'Дерево'], ['radial', 'Радиально']].map(([k, l]) => (
-            <button key={k} className="btn btn-sm" onClick={() => setOrient(k)} style={{ background: orient === k ? 'var(--bg-3)' : 'transparent', color: orient === k ? 'var(--ink)' : 'var(--ink-3)' }}>{l}</button>
+            <button key={k} className="btn btn-sm" onClick={() => setOrient(k)} style={{ background: orient === k ? 'var(--ink-max)' : 'transparent', color: orient === k ? 'var(--accent-ink)' : 'var(--ink-3)', border: 'none' }}>{l}</button>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', flex: 1 }}>
@@ -4035,7 +4103,9 @@ function App() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {user && <NotificationsMenu user={user} go={go} />}
             <button className="icon-btn nav-burger" title="Меню" aria-label="Меню" aria-expanded={menuOpen} onClick={() => setMenuOpen(o => !o)}>
-              <Icon name={menuOpen ? 'x' : 'menu'} size={20} />
+              {menuOpen
+                ? <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M4 4l10 10M14 4L4 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" /></svg>
+                : <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2.5 5h13M2.5 9h13M2.5 13h13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="square" /></svg>}
             </button>
           </div>
         </header>
