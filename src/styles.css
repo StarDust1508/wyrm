@@ -932,11 +932,28 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 }
 @keyframes gate-breathe2{ 0%,100%{ scale:1.04; opacity:.35 } 50%{ scale:1; opacity:.6 } }
 
-/* full-width centerline at 50% height */
+/* full-width centerline at 50% height (the mirror axis of the world-tree) */
 .gate-centerline{
   position:absolute; top:50%; left:0; right:0; height:1px; z-index:1;
   background:var(--g-line); pointer-events:none;
   transform:translateY(calc(-.5px + var(--gy,0px) * .25));
+}
+/* vertical centerline — together with the horizontal one forms the cross */
+.gate-vline{
+  position:absolute; top:0; bottom:0; left:50%; width:1px; z-index:1;
+  background:var(--g-line); pointer-events:none;
+  transform:translateX(calc(-.5px + var(--gx,0px) * .25));
+}
+/* geometric frame — the corners + reg marks all align to this rectangle */
+.gate-frame{
+  position:absolute; inset:clamp(22px,4vw,36px); z-index:1; pointer-events:none;
+  border:1px solid var(--g-line);
+}
+/* Иггдрасиль — мировое древо, центрировано на кресте, крона/корни зеркальны */
+.gate-tree{
+  position:absolute; top:0; left:50%; height:100%; width:min(158vh,104%); z-index:0;
+  opacity:.5; pointer-events:none;
+  transform:translateX(-50%) translateY(calc(var(--gy,0px) * .15));
 }
 
 /* registration / crosshair marks — on the centerline, slow rotate + parallax */
@@ -946,8 +963,8 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   animation:gate-spin 34s linear infinite;               /* `rotate` composes with transform */
 }
 @keyframes gate-spin{ from{ rotate:0deg } to{ rotate:360deg } }
-.gate-reg-left{ left:clamp(14px,3vw,40px); }
-.gate-reg-right{ right:clamp(14px,3vw,40px); animation-direction:reverse; }
+.gate-reg-left{ left:calc(clamp(22px,4vw,36px) - 13px); }
+.gate-reg-right{ right:calc(clamp(22px,4vw,36px) - 13px); animation-direction:reverse; }
 
 /* ---------- corners ---------- */
 .gate-corner{
@@ -1028,6 +1045,14 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .gate-word:hover,
 .gate-word:focus-visible{ filter:blur(1px); }
 .gate-word:focus-visible{ outline:none; }
+
+/* literary line typed under the wordmark on WYRM-click */
+.gate-quote{ margin-top:clamp(16px,3.4vh,34px); min-height:3em; width:min(640px,86vw); }
+.gate-quote-hint{ font-family:var(--mono); font-size:clamp(8px,.85vw,10px); letter-spacing:.2em; text-transform:uppercase; color:var(--g-ink); opacity:.34; }
+.gate-quote-text{ font-family:var(--ui); font-style:italic; font-size:clamp(13px,1.5vw,18px); line-height:1.5; color:var(--g-ink); opacity:.9; }
+.gate-quote-author{ font-family:var(--mono); font-size:clamp(8px,.9vw,10px); letter-spacing:.14em; text-transform:uppercase; color:var(--g-ink); opacity:.55; margin-top:10px; }
+.gate-quote-enter{ font:inherit; letter-spacing:.14em; color:var(--g-ink); opacity:.9; background:none; border:0; cursor:pointer; pointer-events:auto; text-decoration:underline; text-underline-offset:2px; }
+.gate-quote-enter:hover{ opacity:1; }
 
 /* ---------- black welcome overlay ---------- */
 .gwelcome{

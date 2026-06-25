@@ -787,6 +787,65 @@ Object.assign(window, { Landing, Catalog });
    от темы приложения). Центр — «WYRM» (клик → приветствие → home), 4 угла — навигация.
    Все стили — .gate / .gwelcome в styles.css. */
 /* Регистрационная метка-крест (как у типографских шаблонов) на центральной линии. */
+/* Литературная библиотека ворот: пользовательские строки + кураторский Шекспир.
+   Клик по WYRM печатает следующую строку (печатная машинка). */
+const GATE_QUOTES = [
+  { text: 'Мы созданы из вещества того же, что наши сны.', author: 'Уильям Шекспир' },
+  { text: 'Нет ничего ни хорошего, ни дурного; размышление делает всё таковым.', author: 'Уильям Шекспир' },
+  { text: 'Весь мир — театр, а люди в нём — актёры.', author: 'Уильям Шекспир' },
+  { text: 'И всё, что думал я вокруг — оно не будет вечно, друг… Лишь в деле, в шаге, в ремесле — мы оставляем след на этой всей земле.', author: 'неизвестно' },
+  { text: 'Краткость — душа ума.', author: 'Уильям Шекспир' },
+  { text: 'Порою против нашей воли мы демонами для себя самих являемся — и обуздать не в силах ни слабостей, ни склонностей своих.', author: 'Уильям Шекспир' },
+  { text: 'Что в имени? То, что зовём мы розой, — и под другим названьем сохранило б свой сладкий запах.', author: 'Уильям Шекспир' },
+  { text: 'Всего несколько выверенных рассуждений могут изменить способ нашего восприятия мира.', author: 'Стивен Ландсбург' },
+  { text: 'Готовность — это всё.', author: 'Уильям Шекспир' },
+  { text: 'Ценность идеала в том, что он удаляется по мере того, как мы приближаемся к нему.', author: 'Махатма Ганди' },
+  { text: 'Трус умирает много раз ещё до смерти; храбрец вкушает смерть лишь раз.', author: 'Уильям Шекспир' },
+  { text: 'Любовь глядит не взором, а душою.', author: 'Уильям Шекспир' },
+  { text: 'Быть или не быть — вот в чём вопрос.', author: 'Уильям Шекспир' },
+  { text: 'Я ничему не научился — я и так это знал. Просто был в раздрае и не сумел себя сдержать.', author: 'Стэнли Дракенмиллер' },
+  { text: 'Совесть делает из всех нас трусов.', author: 'Уильям Шекспир' },
+];
+
+/* Иггдрасиль: рекурсивное древо (крона вверх) + его зеркало вниз (корни) по центральной линии.
+   Детерминировано (сид), считается один раз. Возвращает 2 path-строки: толстые ветви и тонкие. */
+const YGG = (() => {
+  const thick = [], thin = [];
+  let seed = 1337;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const push = (arr, x1, y1, x2, y2) => {
+    arr.push(`M${x1.toFixed(1)} ${y1.toFixed(1)}L${x2.toFixed(1)} ${y2.toFixed(1)}`);
+    arr.push(`M${x1.toFixed(1)} ${(1000 - y1).toFixed(1)}L${x2.toFixed(1)} ${(1000 - y2).toFixed(1)}`);
+  };
+  const grow = (x, y, a, len, d) => {
+    if (d <= 0 || len < 8) return;
+    const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
+    push(d > 5 ? thick : thin, x, y, x2, y2);
+    const sp = 0.26 + rnd() * 0.20;
+    if (d > 6) {
+      grow(x2, y2, a - sp, len * 0.74, d - 1);
+      grow(x2, y2, a + sp * 0.92, len * 0.72, d - 1);
+      grow(x2, y2, a + (rnd() - 0.5) * 0.12, len * 0.86, d - 1);
+    } else {
+      grow(x2, y2, a - sp, len * 0.75, d - 1);
+      grow(x2, y2, a + sp, len * 0.73, d - 1);
+      if (rnd() > 0.5 && d > 2) grow(x2, y2, a + (rnd() - 0.5) * 0.5, len * 0.6, d - 1);
+    }
+  };
+  grow(500, 500, -Math.PI / 2, 118, 9);
+  return { thick: thick.join(''), thin: thin.join('') };
+})();
+
+function GateTree() {
+  return (
+    <svg className="gate-tree" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true" fill="none" stroke="var(--g-ink)" strokeLinecap="round" strokeLinejoin="round">
+      <path d={YGG.thin} strokeWidth="1.3" />
+      <path d={YGG.thick} strokeWidth="3.2" />
+    </svg>
+  );
+}
+
 function GateRegMark({ side }) {
   return (
     <svg className={'gate-reg gate-reg-' + side} width="26" height="26" viewBox="0 0 26 26"
@@ -824,8 +883,9 @@ function GateCorner({ pos, label, sub, arrow, onClick, ariaLabel }) {
 }
 
 function Gate({ go }) {
-  const [welcome, setWelcome] = useState(false);
-  const overlayRef = useRef(null);
+  const [qi, setQi] = useState(-1);
+  const [typed, setTyped] = useState('');
+  const [done, setDone] = useState(false);
   const wordRef = useRef(null);
   const rootRef = useRef(null);
 
@@ -855,41 +915,28 @@ function Gate({ go }) {
     return () => { cancelAnimationFrame(raf); el.removeEventListener('pointermove', onMove); el.removeEventListener('pointerleave', onLeave); };
   }, []);
 
-  // Welcome overlay: Escape closes it, focus is trapped inside while open,
-  // and focus returns to the wordmark on dismiss. (Accessibility per spec.)
+  // Typewriter: clicking the wordmark types out the next literary line.
   useEffect(() => {
-    if (!welcome) return;
-    const node = overlayRef.current;
-    const focusables = () => Array.from(
-      node.querySelectorAll('button, [href], input, [tabindex]:not([tabindex="-1"])')
-    ).filter(el => !el.disabled && el.offsetParent !== null);
-    const first = focusables()[0];
-    if (first) first.focus();
-    const onKey = (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); setWelcome(false); return; }
-      if (e.key !== 'Tab') return;
-      const f = focusables();
-      if (!f.length) return;
-      const a = f[0], z = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
-      else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
-    };
-    node.addEventListener('keydown', onKey);
-    return () => {
-      node.removeEventListener('keydown', onKey);
-      if (wordRef.current) wordRef.current.focus();
-    };
-  }, [welcome]);
+    if (qi < 0) return;
+    const full = GATE_QUOTES[qi].text;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setTyped(full); setDone(true); return; }
+    setTyped(''); setDone(false);
+    let i = 0;
+    const id = setInterval(() => { i += 1; setTyped(full.slice(0, i)); if (i >= full.length) { clearInterval(id); setDone(true); } }, 28);
+    return () => clearInterval(id);
+  }, [qi]);
+  const nextQuote = () => setQi(q => (q + 1) % GATE_QUOTES.length);
 
   return (
     <div className="gate" ref={rootRef}>
       {/* film-grain noise overlay */}
       <div className="gate-grain" aria-hidden="true" />
-      {/* CSS-only constellation starfield */}
-      <div className="gate-stars" aria-hidden="true" />
-      {/* hairline guide geometry */}
-      <div className="gate-circle" aria-hidden="true" />
+      {/* Иггдрасиль — зеркальное мировое древо (крона вверх, корни вниз) по центральной линии */}
+      <GateTree />
+      {/* геометрия: рамка + крест из центральных линий — всё подчиняется им */}
+      <div className="gate-frame" aria-hidden="true" />
       <div className="gate-centerline" aria-hidden="true" />
+      <div className="gate-vline" aria-hidden="true" />
       {/* registration marks on the centerline at both edges */}
       <GateRegMark side="left" />
       <GateRegMark side="right" />
@@ -907,34 +954,22 @@ function Gate({ go }) {
       {/* center: eyebrow + mirrored two-row wordmark (the primary CTA) */}
       <div className="gate-center">
         <span className="gate-eyebrow">СОТВОРИ ИСТОРИЮ ВМЕСТЕ<span className="blink" aria-hidden="true" style={{ marginLeft: '.4em' }}>▋</span></span>
-        <button ref={wordRef} className="gate-word" onClick={() => setWelcome(true)}
-          aria-label="Открыть приветствие WYRM">
-          {/* WYRM reads top-to-bottom: legible "WY" then legible "RM".
-              The reframed "mirror" signature is a faint scaleY(-1) reflection
-              echoed beneath the bottom row (decorative, aria-hidden), so the
-              word stays readable AND keeps the printer's-plate reflection look. */}
+        <button ref={wordRef} className="gate-word" onClick={nextQuote}
+          aria-label="WYRM — нажми, чтобы услышать строку">
+          {/* WYRM reads top-to-bottom: legible "WY" then legible "RM" + faint mirror. */}
           <span className="gate-word-line">WY</span>
           <span className="gate-word-line">RM</span>
           <span className="gate-word-line gate-word-mirror" aria-hidden="true">RM</span>
         </button>
-      </div>
-
-      {/* black welcome overlay */}
-      {welcome && (
-        <div className="gwelcome" ref={overlayRef} role="dialog" aria-modal="true"
-          aria-label="Добро пожаловать в WYRM">
-          <div className="gwelcome-inner">
-            <p className="gwelcome-greeting">
-              ДОБРО ПОЖАЛОВАТЬ, ДОРОГОЙ <strong>ПОЛЬЗОВАТЕЛЬ</strong>.<br />
-              ЭТО <strong>WYRM</strong> — ЖИВАЯ ПЛОЩАДКА КОЛЛЕКТИВНОГО ПОВЕСТВОВАНИЯ.
-            </p>
-            <div className="gwelcome-actions">
-              <button className="gwelcome-btn" onClick={() => go('home')}>ВОЙТИ В WYRM</button>
-              <button className="gwelcome-btn" onClick={() => setWelcome(false)}>ОСМОТРЕТЬСЯ</button>
-            </div>
-          </div>
+        <div className="gate-quote" aria-live="polite">
+          {qi < 0
+            ? <p className="gate-quote-hint">нажми WYRM — услышишь строку</p>
+            : <React.Fragment>
+                <p className="gate-quote-text">«{typed}»{!done && <span className="blink" aria-hidden="true">▋</span>}</p>
+                {done && <p className="gate-quote-author">— {GATE_QUOTES[qi].author} <button className="gate-quote-enter" onClick={() => go('home')}>· войти →</button></p>}
+              </React.Fragment>}
         </div>
-      )}
+      </div>
     </div>
   );
 }
