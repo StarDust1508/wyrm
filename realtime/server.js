@@ -245,6 +245,8 @@ class Session {
     this.turnHolder = next;
 
     if (next) {
+      // Producer: ping the new pen-holder (best-effort, PB-only).
+      notifyRoomTurn(this, next);
       this.turnDeadline = Date.now() + TURN_MS;
       // Auto-pass when the deadline elapses.
       this.turnTimer = setTimeout(() => {
@@ -457,6 +459,28 @@ function pbCreateNode(body) {
     headers: { 'Content-Type': 'application/json', ...(pbToken ? { Authorization: pbToken } : {}) },
     body: JSON.stringify(body),
   });
+}
+
+function pbCreateNotification(body) {
+  return fetch(`${PB_URL}/api/collections/notifications/records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(pbToken ? { Authorization: pbToken } : {}) },
+    body: JSON.stringify(body),
+  });
+}
+
+// Producer: persist a `room_turn` notification for the writer who just got the
+// pen, so an away user is pinged and can deep-link back (client maps kind
+// 'room_turn' -> WritersRoom). PB-only; no-op without persistence creds.
+// Fire-and-forget — never blocks turn rotation.
+async function notifyRoomTurn(session, userId) {
+  if (!persistEnabled() || !userId) return;
+  const ref = { text: 'Твой ход в комнате авторов', session: session.id };
+  try {
+    let res = await pbCreateNotification({ user: userId, kind: 'room_turn', ref });
+    if (res && res.status === 401) { await pbAuth(); res = await pbCreateNotification({ user: userId, kind: 'room_turn', ref }); }
+    if (res && !res.ok) warn(`room_turn notify PB ${res.status} (session ${session.id})`);
+  } catch (err) { warn('room_turn notify failed:', err?.message || err); }
 }
 
 async function pbGetJson(path) {
