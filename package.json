@@ -1,9 +1,9 @@
 {
-  "name": "wyrm",
+  "name": "galathilion",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "WYRM — площадка коллективного повествования: ветвящиеся истории, лента и сообщества",
+  "description": "Galathilion — площадка коллективного повествования: ветвящиеся истории, лента и сообщества",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
