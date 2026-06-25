@@ -682,7 +682,7 @@ function Landing({ go }) {
           У каждой истории — тысяча возможных концов.
         </h2>
         <p className="serif-italic" style={{ color: 'var(--ink-2)', maxWidth: '44ch', margin: '0 auto 32px', fontSize: '1.15rem' }}>
-          Напиши свой. Или проголосуй за чужой. WYRM хранит их все.
+          Напиши свой. Или проголосуй за чужой. Galathilion хранит их все.
         </p>
         <button className="btn btn-primary" onClick={() => go('compose')}><Icon name="quill" size={16} />Начать ветку</button>
       </section>
@@ -818,21 +818,21 @@ const YGG = (() => {
     arr.push(`M${x1.toFixed(1)} ${(1000 - y1).toFixed(1)}L${x2.toFixed(1)} ${(1000 - y2).toFixed(1)}`);
   };
   const grow = (x, y, a, len, d) => {
-    if (d <= 0 || len < 6) return;
+    if (d <= 0 || len < 5) return;
     const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
     push(d >= 8 ? trunk : (d >= 5 ? branch : twig), x, y, x2, y2);
-    const sp = 0.24 + rnd() * 0.20;
+    const sp = 0.34 + rnd() * 0.32;          // шире разброс — раскидистая крона
     if (d > 7) {
-      grow(x2, y2, a - sp, len * 0.76, d - 1);
-      grow(x2, y2, a + sp * 0.92, len * 0.74, d - 1);
-      grow(x2, y2, a + (rnd() - 0.5) * 0.10, len * 0.88, d - 1);   // ствол-лидер
+      grow(x2, y2, a - sp, len * 0.80, d - 1);
+      grow(x2, y2, a + sp * 0.95, len * 0.78, d - 1);
+      grow(x2, y2, a + (rnd() - 0.5) * 0.16, len * 0.90, d - 1);   // ствол-лидер
     } else {
-      grow(x2, y2, a - sp, len * 0.77, d - 1);
-      grow(x2, y2, a + sp, len * 0.75, d - 1);
-      if (rnd() > 0.42 && d > 2) grow(x2, y2, a + (rnd() - 0.5) * 0.55, len * 0.62, d - 1);
+      grow(x2, y2, a - sp, len * 0.80, d - 1);
+      grow(x2, y2, a + sp, len * 0.78, d - 1);
+      if (rnd() > 0.30 && d > 2) grow(x2, y2, a + (rnd() - 0.5) * 0.85, len * 0.64, d - 1);  // живые веточки
     }
   };
-  grow(500, 500, -Math.PI / 2, 150, 10);   // крупнее: длиннее ствол, глубже крона
+  grow(500, 500, -Math.PI / 2, 160, 10);   // крупнее и шире
   return { trunk: trunk.join(''), branch: branch.join(''), twig: twig.join('') };
 })();
 
@@ -1007,13 +1007,11 @@ function Gate({ go }) {
       <div className="gate-center">
         <span className="gate-eyebrow">СОТВОРИ ИСТОРИЮ ВМЕСТЕ<span className="blink" aria-hidden="true" style={{ marginLeft: '.4em' }}>▋</span></span>
         <button ref={wordRef} className="gate-word" onClick={openQuote}
-          aria-label="WYRM — нажми, чтобы услышать строку">
-          {/* WYRM reads top-to-bottom: legible "WY" then legible "RM" + faint mirror. */}
-          <span className="gate-word-line">WY</span>
-          <span className="gate-word-line">RM</span>
-          <span className="gate-word-line gate-word-mirror" aria-hidden="true">RM</span>
+          aria-label="Galathilion — нажми, чтобы услышать строку">
+          <span className="gate-word-line">GALAT</span>
+          <span className="gate-word-line">HILION</span>
+          <span className="gate-word-line gate-word-mirror" aria-hidden="true">HILION</span>
         </button>
-        <span className="gate-quote-hint">нажми WYRM — услышишь строку</span>
       </div>
 
       {/* чёрный экран с печатающейся литературной строкой */}
@@ -1024,8 +1022,7 @@ function Gate({ go }) {
             <p className="gquote-text">«{typed}»{!done && <span className="blink" aria-hidden="true">▋</span>}</p>
             <p className="gquote-author">{done ? '— ' + GATE_QUOTES[qi].author : ' '}</p>
             <div className="gwelcome-actions">
-              <button className="gwelcome-btn" onClick={nextQuote}>ещё строку</button>
-              <button className="gwelcome-btn" onClick={() => go('home')}>войти в WYRM</button>
+              <button className="gwelcome-btn" onClick={() => go('home')}>войти в Galathilion</button>
               <button className="gwelcome-btn" onClick={() => setQopen(false)}>закрыть</button>
             </div>
           </div>
@@ -2829,7 +2826,7 @@ function PluginsScreen({ state, toggle, customs, addCustom, go }) {
 
   const publish = () => {
     const id = 'cm_' + Date.now().toString(36);
-    addCustom({ id, name: bName || 'Моё расширение', author: 'ты', cat: bCat, slot: bSlot, glyph: bGlyph || '✦', color: bColor, installs: 'новое', rating: 5.0, desc: 'Создано тобой в конструкторе WYRM.', custom: true });
+    addCustom({ id, name: bName || 'Моё расширение', author: 'ты', cat: bCat, slot: bSlot, glyph: bGlyph || '✦', color: bColor, installs: 'новое', rating: 5.0, desc: 'Создано тобой в конструкторе Galathilion.', custom: true });
     setTab('installed'); setBName('');
   };
 
@@ -2842,7 +2839,7 @@ function PluginsScreen({ state, toggle, customs, addCustom, go }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 14 }}>
           <h1 className="display" style={{ fontSize: 'clamp(1.9rem,4.4vw,3rem)', maxWidth: '20ch' }}>Магазин расширений</h1>
           <p className="serif-italic" style={{ color: 'var(--ink-2)', maxWidth: '38ch' }}>
-            Сообщество расширяет WYRM как хочет — атмосфера, инструменты письма, геймификация. Включай по желанию или собери своё.
+            Сообщество расширяет Galathilion как хочет — атмосфера, инструменты письма, геймификация. Включай по желанию или собери своё.
           </p>
         </div>
       </div>
@@ -3047,7 +3044,7 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
 
         <div style={{ marginBottom: 22 }}>
           <div className="brand" style={{ marginBottom: 18 }}>
-            <span className="logo" style={{ fontFamily: 'var(--display)', fontWeight: 800, fontSize: '1.4rem' }}><span style={{ color: 'var(--accent)' }}>W</span>YRM</span>
+            <span className="logo" style={{ fontFamily: 'var(--display)', fontWeight: 800, fontSize: '1.4rem' }}><span style={{ color: 'var(--accent)' }}>G</span>alathilion</span>
           </div>
           <h2 className="display" style={{ fontSize: '1.7rem', marginBottom: 6 }}>{reg ? 'Стань соавтором' : 'С возвращением'}</h2>
           <p className="serif-italic" style={{ color: 'var(--ink-2)' }}>{reg ? 'Создай аккаунт и впиши свою главу в общую историю.' : 'Войди, чтобы продолжить ветвить истории.'}</p>
@@ -4192,7 +4189,7 @@ function App() {
               <Icon name="arrowL" size={13} stroke={1.5} /><span>{hist.length ? 'Назад' : 'Ворота'}</span>
             </button>
             <span className="navctl-crumb mono">
-              <button className="navctl-home" onClick={() => go('landing')}><span className="w">W</span>YRM</button>
+              <button className="navctl-home" onClick={() => go('landing')}><span className="w">G</span>alathilion</button>
               <span className="navctl-sep">/</span>{studioRoute ? 'Студия · ' : ''}{ROUTE_LABEL[route] || route}
             </span>
           </div>
@@ -4211,7 +4208,7 @@ function App() {
       {route !== 'landing' && (
         <div className="mobile-menu" data-open={menuOpen} onClick={() => setMenuOpen(false)}>
           <div className="mobile-menu-panel" onClick={e => e.stopPropagation()}>
-            <button className="mobile-link" onClick={() => { go('landing'); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Ворота WYRM</button>
+            <button className="mobile-link" onClick={() => { go('landing'); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Ворота Galathilion</button>
             {NAV.map(([r, l]) => (
               <button key={r} className="mobile-link" data-active={route === r}
                 onClick={() => { go(r, r === 'reader' ? { story: 'ashes', node: null } : undefined); setMenuOpen(false); }}>{l}</button>
@@ -4261,7 +4258,7 @@ function App() {
 
       {route !== 'landing' && !studioRoute && (
       <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18, position: 'relative', zIndex: 1 }}>
-        <div className="brand"><span className="logo" style={{ fontSize: '1.2rem' }}><span className="w">W</span>YRM</span></div>
+        <div className="brand"><span className="logo" style={{ fontSize: '1.2rem' }}><span className="w">G</span>alathilion</span></div>
         <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', maxWidth: '36ch' }}>Площадка коллективного повествования. Каждая история живёт, пока её пишут.</p>
         <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{theme === 'inverted' ? 'мир · Инверсия' : 'мир · Бумага'}</div>
       </footer>
