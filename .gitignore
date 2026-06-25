@@ -12,3 +12,6 @@ WYRM-standalone.html
 
 # realtime microservice deps
 realtime/node_modules
+
+# pasted reference screenshots
+ChatGPT Image*.png
