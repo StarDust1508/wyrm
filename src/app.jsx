@@ -810,7 +810,7 @@ const GATE_QUOTES = [
 /* Иггдрасиль: рекурсивное древо (крона вверх) + его зеркало вниз (корни) по центральной линии.
    Детерминировано (сид), считается один раз. Возвращает 2 path-строки: толстые ветви и тонкие. */
 const YGG = (() => {
-  const thick = [], thin = [];
+  const trunk = [], branch = [], twig = [];
   let seed = 1337;
   const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   const push = (arr, x1, y1, x2, y2) => {
@@ -818,31 +818,61 @@ const YGG = (() => {
     arr.push(`M${x1.toFixed(1)} ${(1000 - y1).toFixed(1)}L${x2.toFixed(1)} ${(1000 - y2).toFixed(1)}`);
   };
   const grow = (x, y, a, len, d) => {
-    if (d <= 0 || len < 8) return;
+    if (d <= 0 || len < 6) return;
     const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
-    push(d > 5 ? thick : thin, x, y, x2, y2);
-    const sp = 0.26 + rnd() * 0.20;
-    if (d > 6) {
-      grow(x2, y2, a - sp, len * 0.74, d - 1);
-      grow(x2, y2, a + sp * 0.92, len * 0.72, d - 1);
-      grow(x2, y2, a + (rnd() - 0.5) * 0.12, len * 0.86, d - 1);
+    push(d >= 8 ? trunk : (d >= 5 ? branch : twig), x, y, x2, y2);
+    const sp = 0.24 + rnd() * 0.20;
+    if (d > 7) {
+      grow(x2, y2, a - sp, len * 0.76, d - 1);
+      grow(x2, y2, a + sp * 0.92, len * 0.74, d - 1);
+      grow(x2, y2, a + (rnd() - 0.5) * 0.10, len * 0.88, d - 1);   // ствол-лидер
     } else {
-      grow(x2, y2, a - sp, len * 0.75, d - 1);
-      grow(x2, y2, a + sp, len * 0.73, d - 1);
-      if (rnd() > 0.5 && d > 2) grow(x2, y2, a + (rnd() - 0.5) * 0.5, len * 0.6, d - 1);
+      grow(x2, y2, a - sp, len * 0.77, d - 1);
+      grow(x2, y2, a + sp, len * 0.75, d - 1);
+      if (rnd() > 0.42 && d > 2) grow(x2, y2, a + (rnd() - 0.5) * 0.55, len * 0.62, d - 1);
     }
   };
-  grow(500, 500, -Math.PI / 2, 118, 9);
-  return { thick: thick.join(''), thin: thin.join('') };
+  grow(500, 500, -Math.PI / 2, 150, 10);   // крупнее: длиннее ствол, глубже крона
+  return { trunk: trunk.join(''), branch: branch.join(''), twig: twig.join('') };
 })();
 
 function GateTree() {
   return (
     <svg className="gate-tree" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet"
       aria-hidden="true" fill="none" stroke="var(--g-ink)" strokeLinecap="round" strokeLinejoin="round">
-      <path d={YGG.thin} strokeWidth="1.3" />
-      <path d={YGG.thick} strokeWidth="3.2" />
+      <path d={YGG.twig} strokeWidth="1.2" />
+      <path d={YGG.branch} strokeWidth="3" />
+      <path d={YGG.trunk} strokeWidth="6.5" />
     </svg>
+  );
+}
+
+/* осенние падающие листья — детерминированные, бесконечная анимация (гаснет при reduce) */
+const GATE_LEAVES = Array.from({ length: 18 }, (_, i) => ({
+  i,
+  left: ((i * 53) % 100),
+  delay: ((i * 1.7) % 11),
+  dur: 9 + (i % 6) * 1.7,
+  size: 8 + (i % 4) * 4,
+  drift: (i % 2 ? 1 : -1) * (24 + (i % 3) * 20),
+  spin: 360 + (i % 3) * 180,
+}));
+function GateLeaves() {
+  return (
+    <div className="gate-leaves" aria-hidden="true">
+      {GATE_LEAVES.map(l => (
+        <span key={l.i} className="leaf" style={{
+          left: l.left + '%', width: l.size, height: l.size,
+          animationDelay: -l.delay + 's', animationDuration: l.dur + 's',
+          '--drift': l.drift + 'px', '--spin': l.spin + 'deg',
+        }}>
+          <svg viewBox="0 0 12 14" width={l.size} height={l.size} fill="none">
+            <path d="M6 0 C10 4 10 10 6 14 C2 10 2 4 6 0 Z" fill="var(--g-ink)" />
+            <path d="M6 1.5 L6 12.5" stroke="var(--g-bg)" strokeWidth=".5" />
+          </svg>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -886,8 +916,10 @@ function Gate({ go }) {
   const [qi, setQi] = useState(-1);
   const [typed, setTyped] = useState('');
   const [done, setDone] = useState(false);
+  const [qopen, setQopen] = useState(false);
   const wordRef = useRef(null);
   const rootRef = useRef(null);
+  const overlayRef = useRef(null);
 
   // Pointer parallax: курсор сдвигает слои (--gx/--gy) для ощущения глубины.
   // Плавно затухает к центру; отключается при prefers-reduced-motion.
@@ -926,6 +958,24 @@ function Gate({ go }) {
     return () => clearInterval(id);
   }, [qi]);
   const nextQuote = () => setQi(q => (q + 1) % GATE_QUOTES.length);
+  const openQuote = () => { nextQuote(); setQopen(true); };
+  // фокус-ловушка + Escape для чёрного оверлея (a11y)
+  useEffect(() => {
+    if (!qopen) return;
+    const node = overlayRef.current; if (!node) return;
+    const foc = () => Array.from(node.querySelectorAll('button')).filter(b => b.offsetParent !== null);
+    const first = foc()[0]; if (first) first.focus();
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); setQopen(false); return; }
+      if (e.key !== 'Tab') return;
+      const f = foc(); if (!f.length) return;
+      const a = f[0], z = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+      else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+    };
+    node.addEventListener('keydown', onKey);
+    return () => { node.removeEventListener('keydown', onKey); if (wordRef.current) wordRef.current.focus(); };
+  }, [qopen]);
 
   return (
     <div className="gate" ref={rootRef}>
@@ -933,6 +983,8 @@ function Gate({ go }) {
       <div className="gate-grain" aria-hidden="true" />
       {/* Иггдрасиль — зеркальное мировое древо (крона вверх, корни вниз) по центральной линии */}
       <GateTree />
+      {/* осенние падающие листья */}
+      <GateLeaves />
       {/* геометрия: рамка + крест из центральных линий — всё подчиняется им */}
       <div className="gate-frame" aria-hidden="true" />
       <div className="gate-centerline" aria-hidden="true" />
@@ -954,22 +1006,31 @@ function Gate({ go }) {
       {/* center: eyebrow + mirrored two-row wordmark (the primary CTA) */}
       <div className="gate-center">
         <span className="gate-eyebrow">СОТВОРИ ИСТОРИЮ ВМЕСТЕ<span className="blink" aria-hidden="true" style={{ marginLeft: '.4em' }}>▋</span></span>
-        <button ref={wordRef} className="gate-word" onClick={nextQuote}
+        <button ref={wordRef} className="gate-word" onClick={openQuote}
           aria-label="WYRM — нажми, чтобы услышать строку">
           {/* WYRM reads top-to-bottom: legible "WY" then legible "RM" + faint mirror. */}
           <span className="gate-word-line">WY</span>
           <span className="gate-word-line">RM</span>
           <span className="gate-word-line gate-word-mirror" aria-hidden="true">RM</span>
         </button>
-        <div className="gate-quote" aria-live="polite">
-          {qi < 0
-            ? <p className="gate-quote-hint">нажми WYRM — услышишь строку</p>
-            : <React.Fragment>
-                <p className="gate-quote-text">«{typed}»{!done && <span className="blink" aria-hidden="true">▋</span>}</p>
-                {done && <p className="gate-quote-author">— {GATE_QUOTES[qi].author} <button className="gate-quote-enter" onClick={() => go('home')}>· войти →</button></p>}
-              </React.Fragment>}
-        </div>
+        <span className="gate-quote-hint">нажми WYRM — услышишь строку</span>
       </div>
+
+      {/* чёрный экран с печатающейся литературной строкой */}
+      {qopen && (
+        <div className="gwelcome gquote" ref={overlayRef} role="dialog" aria-modal="true"
+          aria-label="Литературная строка" onClick={() => setQopen(false)}>
+          <div className="gwelcome-inner" onClick={e => e.stopPropagation()}>
+            <p className="gquote-text">«{typed}»{!done && <span className="blink" aria-hidden="true">▋</span>}</p>
+            <p className="gquote-author">{done ? '— ' + GATE_QUOTES[qi].author : ' '}</p>
+            <div className="gwelcome-actions">
+              <button className="gwelcome-btn" onClick={nextQuote}>ещё строку</button>
+              <button className="gwelcome-btn" onClick={() => go('home')}>войти в WYRM</button>
+              <button className="gwelcome-btn" onClick={() => setQopen(false)}>закрыть</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

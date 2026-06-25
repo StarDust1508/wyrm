@@ -356,6 +356,15 @@ a{ color:inherit; text-decoration:none; }
 button{ font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
 img{ display:block; max-width:100%; }
 
+/* ---------- перо: кастомный курсор по всей платформе ---------- */
+/* нибы пера; hotspot в кончике пера (4,4) */
+*{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M4 4 L4 12 L12 4 Z' fill='%2314110f'/%3E%3Cpath d='M4.5 4.5 L8 8' stroke='%23ffffff' stroke-width='.7'/%3E%3Cpath d='M9.5 9.5 L20 20' stroke='%2314110f' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") 4 4, auto; }
+a, button, [role="button"], summary, label, select, .gate-word, .gate-corner, .tnode, .story-card, .tag-btn, .nav-link, .info-dot, .swatch-tile, .mobile-link{
+  cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M4 4 L4 12 L12 4 Z' fill='%2314110f'/%3E%3Cpath d='M4.5 4.5 L8 8' stroke='%23ffffff' stroke-width='.7'/%3E%3Cpath d='M9.5 9.5 L20 20' stroke='%2314110f' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='20.5' cy='20.5' r='2' fill='%2314110f'/%3E%3C/svg%3E") 4 4, pointer !important;
+}
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"]{ cursor:text !important; }
+[data-theme="inverted"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M4 4 L4 12 L12 4 Z' fill='%23e8e8e8'/%3E%3Cpath d='M9.5 9.5 L20 20' stroke='%23e8e8e8' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") 4 4, auto; }
+
 /* ---------- typography helpers ---------- */
 .display{ font-family:var(--display); font-weight:400; line-height:.9; letter-spacing:-0.0208em; text-wrap:balance; }
 .mono{ font-family:var(--mono); font-weight:500; font-size:var(--fs-meta); letter-spacing:.08em; text-transform:uppercase; }
@@ -507,7 +516,7 @@ img{ display:block; max-width:100%; }
 
 /* ---------- icon buttons / settings controls ---------- */
 .icon-btn{
-  width:36px; height:36px; display:grid; place-items:center; border-radius:0;
+  width:36px; height:36px; display:flex; align-items:center; justify-content:center; border-radius:0;
   border:1px solid var(--line); color:var(--ink); transition:color var(--ms-color) var(--ease-color), border-color var(--ms-color) var(--ease-color), background-color var(--ms-color) var(--ease-color);
 }
 .icon-btn:hover{ color:var(--accent-ink); border-color:var(--ink-max); background:var(--ink-max); }
@@ -949,11 +958,23 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   position:absolute; inset:clamp(22px,4vw,36px); z-index:1; pointer-events:none;
   border:1px solid var(--g-line);
 }
-/* Иггдрасиль — мировое древо, центрировано на кресте, крона/корни зеркальны */
+/* Иггдрасиль — мировое древо, центрировано на кресте, крона/корни зеркальны.
+   Крупнее (120% высоты) и легче (фоновое) — не спорит с текстом. */
 .gate-tree{
-  position:absolute; top:0; left:50%; height:100%; width:min(158vh,104%); z-index:0;
-  opacity:.5; pointer-events:none;
-  transform:translateX(-50%) translateY(calc(var(--gy,0px) * .15));
+  position:absolute; top:50%; left:50%; height:120%; aspect-ratio:1; z-index:0;
+  opacity:.36; pointer-events:none;
+  transform:translate(-50%,-50%) translateY(calc(var(--gy,0px) * .12));
+}
+/* осенние падающие листья — между древом (фон) и вордмарком */
+.gate-leaves{ position:absolute; inset:0; z-index:1; pointer-events:none; overflow:hidden; }
+.leaf{ position:absolute; top:-8%; display:block; will-change:transform;
+  animation-name:leaf-fall; animation-timing-function:linear; animation-iteration-count:infinite; }
+.leaf svg{ display:block; opacity:.55; }
+@keyframes leaf-fall{
+  0%{ transform:translateY(-12vh) translateX(0) rotate(0deg); opacity:0; }
+  8%{ opacity:.6; }
+  90%{ opacity:.6; }
+  100%{ transform:translateY(118vh) translateX(var(--drift,24px)) rotate(var(--spin,400deg)); opacity:0; }
 }
 
 /* registration / crosshair marks — on the centerline, slow rotate + parallax */
@@ -1068,6 +1089,9 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   letter-spacing:.12em; line-height:2; text-transform:uppercase; color:#fff;
 }
 .gwelcome-greeting strong{ font-weight:700; }
+/* печатающаяся литературная строка на чёрном экране */
+.gquote-text{ font-family:var(--ui); font-style:italic; font-size:clamp(18px,2.7vw,34px); line-height:1.45; color:#fff; max-width:min(640px,86vw); margin:0 auto clamp(14px,2.4vh,22px); }
+.gquote-author{ font-family:var(--mono); font-size:clamp(9px,1vw,12px); letter-spacing:.16em; text-transform:uppercase; color:#fff; opacity:.6; margin:0 0 clamp(22px,4vh,36px); min-height:1.2em; }
 .gwelcome-actions{ display:flex; flex-wrap:wrap; gap:12px; justify-content:center; }
 .gwelcome-btn{
   border:1px solid #fff; color:#fff; background:transparent; cursor:pointer;
@@ -1084,6 +1108,7 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .gate-word{ filter:blur(8px) !important; transition:none; animation:none; }
   .gate-word:hover, .gate-word:focus-visible{ filter:blur(8px) !important; }
   .gate-circle, .gate-circle::after, .gate-reg{ animation:none; }
+  .gate-leaves{ display:none; }
   .gwelcome{ animation:none; }
   .gate-corner, .gate-corner-label::after, .gate-corner-sub{ transition:none; }
 }
