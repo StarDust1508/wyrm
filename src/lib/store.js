@@ -108,12 +108,44 @@ export async function signIn(email, password) {
   const handle = email.split('@')[0].toLowerCase().replace(/[^a-zа-я0-9]+/gi, '_');
   const u = { name: handle, email, handle, role: demoRole(email), reputation: 0 }; save('wyrm.user', u); return u;
 }
-// OAuth (VK/Yandex/Google/Apple). Провайдер включается в админке PocketBase
-// (Settings → Auth providers). Без подключённого сервера соцвход недоступен.
+// OAuth — ТОЛЬКО разрешённые в РФ провайдеры (149-ФЗ): Яндекс ID, VK ID и
+// OIDC-слоты под банковские ID (Сбер / Тинькофф / ВТБ / Альфа). Иностранные
+// (Google / Apple / Facebook / GitHub / Microsoft / …) запрещены и не
+// допускаются ни в список, ни в сам вход — даже если кто-то по ошибке включит
+// такого провайдера в админке PocketBase, клиент его не покажет и не вызовет.
+export const ALLOWED_OAUTH = new Set(['yandex', 'vk', 'oidc', 'oidc2', 'oidc3']);
+export const OAUTH_LABEL = { yandex: 'Яндекс ID', vk: 'VK ID', oidc: 'Войти', oidc2: 'Войти', oidc3: 'Войти' };
+
+// Провайдеры, реально включённые на сервере, отфильтрованные по allow-list.
+export async function listOAuthProviders() {
+  if (!enabled) return [];
+  try {
+    const pb = await pbClient();
+    const m = await pb.collection('users').listAuthMethods();
+    const provs = (m && (m.authProviders || (m.oauth2 && m.oauth2.providers))) || [];
+    return provs.map(p => p.name).filter(n => ALLOWED_OAUTH.has(n));
+  } catch (_) { return []; }
+}
+
 export async function signInOAuth(provider) {
   if (!enabled) throw new Error('Соцвход доступен только с подключённым сервером.');
+  if (!ALLOWED_OAUTH.has(provider)) throw new Error('Этот способ входа недоступен.');
   const pb = await pbClient();
-  await pb.collection('users').authWithOAuth2({ provider });
+  // OAuth-провайдер не отдаёт наши обязательные поля (handle/role). PocketBase
+  // мёржит createData в новую запись ДО валидации — поэтому передаём их здесь
+  // (handle — временный уникальный; ниже пробуем заменить на красивый из почты).
+  const rand = Math.random().toString(36).slice(2, 8);
+  const createData = { role: 'user', handle: 'author_' + rand, reputation: 0 };
+  await pb.collection('users').authWithOAuth2({ provider, createData });
+  // best-effort: если завели нового OAuth-юзера с временным @handle — выводим
+  // аккуратный из локальной части почты (если он свободен; иначе оставляем).
+  try {
+    const r = authRecord(pb);
+    if (r && /^author_[a-z0-9]{6}$/.test(r.handle || '')) {
+      const base = ((r.email || '').split('@')[0] || '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
+      if (base && base !== r.handle) await pb.collection('users').update(r.id, { handle: base });
+    }
+  } catch (_) { /* handle занят или нет прав — оставляем временный */ }
   return await currentUser();
 }
 
@@ -736,7 +768,7 @@ export async function mergeMergeRequest(id) {
 export async function saveCut(story, path, title) {
   if (enabled) {
     const pb = await pbClient(); const me = authRecord(pb); if (!me) throw new Error('Нужно войти');
-    try { const r = await pb.collection('reader_cuts').create({ user: me.id, story, path, title: title || 'Без названия' }); return { id: r.id, story, path, title: title || 'Без названия', ts: Date.now() }; } catch (e) { return null; }
+    try { const r = await pb.collection('reader_cuts').create({ owner: me.id, story, path, title: title || 'Без названия' }); return { id: r.id, story, path, title: title || 'Без названия', ts: Date.now() }; } catch (e) { return null; }
   }
   const cut = { id: uid('c'), story, path, title: title || 'Без названия', ts: Date.now() };
   save('wyrm.cuts', [cut, ...load('wyrm.cuts', [])]);
@@ -745,7 +777,7 @@ export async function saveCut(story, path, title) {
 export async function listCuts() {
   if (enabled) {
     const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
-    try { const r = await pb.collection('reader_cuts').getFullList({ filter: pb.filter('user={:u}', { u: me.id }), sort: '-created' }); return r.map(x => ({ id: x.id, story: x.story, path: x.path, title: x.title, ts: Date.parse(x.created) || Date.now() })); } catch (e) { return []; }
+    try { const r = await pb.collection('reader_cuts').getFullList({ filter: pb.filter('owner={:u}', { u: me.id }), sort: '-created' }); return r.map(x => ({ id: x.id, story: x.story, path: x.path, title: x.title, ts: Date.parse(x.created) || Date.now() })); } catch (e) { return []; }
   }
   return load('wyrm.cuts', []);
 }

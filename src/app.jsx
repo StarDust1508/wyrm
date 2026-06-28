@@ -1,19 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import DOMPurify from 'dompurify'
 import * as store from './lib/store.js'
 import * as diff from './lib/diff.js'
 import * as consistency from './lib/consistency.js'
 import * as realtime from './lib/realtime.js'
 import { t } from './lib/i18n.js'
-
-// Strict allowlist sanitizer for chapter HTML (editor + imported .docx).
-// Kills <script>, event handlers, javascript: URLs, styles — anything that
-// could become stored XSS once a chapter is shown to other readers.
-const SAFE_TAGS = ['p', 'br', 'b', 'strong', 'i', 'em', 'u', 'h3', 'blockquote', 'ul', 'ol', 'li'];
-function cleanHtml(html) {
-  return DOMPurify.sanitize(html || '', { ALLOWED_TAGS: SAFE_TAGS, ALLOWED_ATTR: [] });
-}
+// Chapter-HTML sanitizer + the Tiptap rich editor live in their own modules.
+import { cleanHtml } from './lib/sanitize.js'
+import { RichEditor } from './Editor.jsx'
 
 // React/ReactDOM are referenced by name throughout the modules below.
 window.React = React; window.ReactDOM = ReactDOM;
@@ -27,16 +21,22 @@ window.React = React; window.ReactDOM = ReactDOM;
 (function () {
   // ---- tag taxonomy (mood-coded) ----
   const TAGS = {
-    'dark-fantasy': { label: 'Тёмное фэнтези', hue: 28 },
-    'tragedy':      { label: 'Трагедия',       hue: 300 },
-    'redemption':   { label: 'Искупление',     hue: 168 },
-    'romance':      { label: 'Романтика',      hue: 4 },
-    'war':          { label: 'Война',          hue: 50 },
-    'horror':       { label: 'Ужасы',          hue: 18 },
-    'comedy':       { label: 'Комедия',        hue: 86 },
-    'happy-end':    { label: 'Светлый финал',  hue: 150 },
+    'dark-fantasy': { label: 'Тёмное фэнтези',  hue: 28 },
+    'sci-fi':       { label: 'Фантастика',      hue: 210 },
+    'horror':       { label: 'Ужасы',           hue: 18 },
+    'mystery':      { label: 'Детектив',        hue: 264 },
+    'thriller':     { label: 'Триллер',         hue: 0 },
+    'adventure':    { label: 'Приключения',     hue: 38 },
+    'romance':      { label: 'Романтика',       hue: 4 },
+    'drama':        { label: 'Драма',           hue: 222 },
+    'tragedy':      { label: 'Трагедия',        hue: 300 },
+    'comedy':       { label: 'Комедия',         hue: 86 },
+    'war':          { label: 'Война',           hue: 50 },
+    'politics':     { label: 'Политика',        hue: 240 },
+    'redemption':   { label: 'Искупление',      hue: 168 },
     'slow-burn':    { label: 'Медленное пламя', hue: 330 },
-    'politics':     { label: 'Политика',       hue: 240 },
+    'fairytale':    { label: 'Сказка',          hue: 130 },
+    'happy-end':    { label: 'Светлый финал',   hue: 150 },
   };
 
   // ---- characters (states vary per branch node) ----
@@ -1008,8 +1008,12 @@ function Gate({ go }) {
         <span className="gate-eyebrow">СОТВОРИ ИСТОРИЮ ВМЕСТЕ<span className="blink" aria-hidden="true" style={{ marginLeft: '.4em' }}>▋</span></span>
         <button ref={wordRef} className="gate-word" onClick={openQuote}
           aria-label="Galathilion — нажми, чтобы услышать строку">
-          <span className="gate-word-line">GALAT</span>
-          <span className="gate-word-line">HILION</span>
+          <span className="gate-word-line">
+            {'GALAT'.split('').map((ch, i) => <span key={'g' + i} className="gw-l">{ch}</span>)}
+          </span>
+          <span className="gate-word-line">
+            {'HILION'.split('').map((ch, i) => <span key={'h' + i} className="gw-l">{ch}</span>)}
+          </span>
           <span className="gate-word-line gate-word-mirror" aria-hidden="true">HILION</span>
         </button>
       </div>
@@ -2987,7 +2991,10 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
   const valid = email.includes('@') && pass.length >= 4 && (!reg || name.trim());
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [providers, setProviders] = useState([]);   // включённые + разрешённые (149-ФЗ) OAuth-провайдеры
   const cardRef = useRef(null);
+  // подтягиваем разрешённые провайдеры, реально включённые на сервере (Google/Apple никогда не попадут)
+  useEffect(() => { if (open) store.listOAuthProviders().then(setProviders).catch(() => setProviders([])); }, [open]);
   // a11y: Escape закрывает, фокус ловится внутри модалки (Tab циклится)
   useEffect(() => {
     if (!open) return;
@@ -3061,16 +3068,16 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
           {reg && (
             <label className="auth-field">
               <span className="mono">Имя автора</span>
-              <input className="auth-input" value={name} onChange={e => setName(e.target.value)} placeholder="Эйра Нокт" />
+              <input className="auth-input" value={name} onChange={e => setName(e.target.value)} placeholder="Эйра Нокт" autoComplete="name" />
             </label>
           )}
           <label className="auth-field">
             <span className="mono">Почта</span>
-            <input className="auth-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@wyrm.co" />
+            <input className="auth-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@galathilion.ru" autoComplete="email" />
           </label>
           <label className="auth-field">
             <span className="mono">Пароль</span>
-            <input className="auth-input" type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" />
+            <input className="auth-input" type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" autoComplete={reg ? 'new-password' : 'current-password'} />
           </label>
           <button type="submit" className="btn btn-primary" disabled={!valid || busy} style={{ justifyContent: 'center', marginTop: 6, opacity: valid && !busy ? 1 : .5 }}>
             {busy ? 'Минуту…' : (reg ? 'Создать аккаунт' : 'Войти')}<Icon name="arrow" size={15} />
@@ -3083,16 +3090,23 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
           )}
         </form>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0' }}>
-          <span style={{ flex: 1, height: 1, background: 'var(--line-soft)' }} />
-          <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>или</span>
-          <span style={{ flex: 1, height: 1, background: 'var(--line-soft)' }} />
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {[['vk', 'VK'], ['yandex', 'Yandex'], ['google', 'Google'], ['apple', 'Apple']].map(([k, l]) => (
-            <button key={k} className="btn btn-ghost btn-sm" disabled={busy} onClick={() => social(k)} aria-label={'Войти через ' + l} style={{ flex: '1 0 40%', justifyContent: 'center' }}>{l}</button>
-          ))}
-        </div>
+        {providers.length > 0 && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '18px 0' }}>
+              <span style={{ flex: 1, height: 1, background: 'var(--line-soft)' }} />
+              <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>или</span>
+              <span style={{ flex: 1, height: 1, background: 'var(--line-soft)' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {providers.map(k => (
+                <button key={k} className="btn btn-ghost btn-sm" disabled={busy} onClick={() => social(k)}
+                  aria-label={'Войти через ' + (store.OAUTH_LABEL[k] || k)} style={{ flex: '1 0 40%', justifyContent: 'center' }}>
+                  {store.OAUTH_LABEL[k] || k}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         <button onClick={onClose} className="mono path-crumb" style={{ display: 'block', margin: '20px auto 0', fontSize: '.58rem', color: 'var(--ink-3)' }}>
           Продолжить как гость →
@@ -3484,71 +3498,7 @@ function htmlToText(html) {
   return (d.textContent || '').replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/* ---- редактор главы: форматирование + импорт .txt/.md/.docx ---- */
-function RichEditor({ initialHtml, onChange, placeholder, minHeight = 320 }) {
-  const ref = useRef(null);
-  const fileRef = useRef(null);
-  const [busy, setBusy] = useState('');
-  const emit = () => { if (ref.current) onChange(ref.current.innerHTML); };
-  const exec = (cmd, val) => { document.execCommand(cmd, false, val); if (ref.current) ref.current.focus(); emit(); };
-  // Push external content (e.g. an import) into the editable DOM without
-  // clobbering the caret while the user is typing.
-  useEffect(() => {
-    if (ref.current && initialHtml != null && ref.current.innerHTML !== initialHtml) ref.current.innerHTML = initialHtml;
-  }, [initialHtml]);
-
-  const importFile = async (file) => {
-    if (!file) return;
-    setBusy('Импортирую «' + file.name + '»…');
-    try {
-      let html = '';
-      if (/\.docx$/i.test(file.name)) {
-        const mammoth = await import('mammoth/mammoth.browser.js');
-        const ab = await file.arrayBuffer();
-        const res = await (mammoth.convertToHtml ? mammoth.convertToHtml({ arrayBuffer: ab }) : mammoth.default.convertToHtml({ arrayBuffer: ab }));
-        html = res.value || '';
-      } else {
-        const text = await file.text();
-        html = text.split(/\n{2,}/).map(p => '<p>' + p.replace(/\n/g, '<br>').replace(/[<>]/g, s => ({ '<': '&lt;', '>': '&gt;' }[s])) + '</p>').join('');
-      }
-      if (ref.current) { ref.current.innerHTML = cleanHtml(html); emit(); }
-    } catch (e) {
-      setBusy('Не удалось прочитать файл: ' + e.message);
-      return;
-    }
-    setBusy('');
-  };
-
-  const tools = [
-    ['Ж', 'bold', null, { fontWeight: 800 }],
-    ['К', 'italic', null, { fontStyle: 'italic', fontFamily: 'var(--serif)' }],
-    ['H', 'formatBlock', 'H3', { fontWeight: 700 }],
-    ['❝', 'formatBlock', 'BLOCKQUOTE', {}],
-    ['• —', 'insertUnorderedList', null, {}],
-    ['⌫', 'removeFormat', null, {}],
-  ];
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginBottom: 10, paddingBottom: 10, borderBottom: 'var(--rule-style)' }}>
-        {tools.map(([label, cmd, val, st]) => (
-          <button key={label} type="button" className="edit-tool" title={cmd}
-            onMouseDown={e => e.preventDefault()} onClick={() => exec(cmd, val)} style={st}>{label}</button>
-        ))}
-        <span style={{ flex: 1 }} />
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => fileRef.current && fileRef.current.click()}>
-          <Icon name="arrow" size={13} />Импорт .txt / .docx
-        </button>
-        <input ref={fileRef} type="file" accept=".txt,.md,.markdown,.docx" style={{ display: 'none' }}
-          onChange={e => { importFile(e.target.files[0]); e.target.value = ''; }} />
-      </div>
-      <div ref={ref} contentEditable suppressContentEditableWarning className="compose-input serif rich-edit"
-        onInput={emit} data-placeholder={placeholder}
-        style={{ width: '100%', minHeight, background: 'var(--bg-2)', border: 'var(--rule-style)', borderRadius: 5, padding: 18, fontSize: '1.05rem', lineHeight: 1.7, color: 'var(--ink)', outline: 'none', fontFamily: 'var(--serif)', overflowY: 'auto' }} />
-      {busy && <div className="mono" style={{ fontSize: '.56rem', color: 'var(--accent)', marginTop: 8 }}>{busy}</div>}
-    </div>
-  );
-}
+/* RichEditor (Tiptap) now lives in ./Editor.jsx and is imported at the top. */
 
 /* ---- интерактивный круг жанров (кольцо с секторами) ---- */
 function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
@@ -3569,16 +3519,23 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
   };
   const active = hover != null ? hover : (sel.length ? ids.indexOf(sel[sel.length - 1]) : null);
   const atMax = multi && max && sel.length >= max;
+  // tick marks between sectors — engraved "instrument" feel
+  const ticks = ids.map((_, i) => { const [tx, ty] = pol(i * step, R + 3); const [tx2, ty2] = pol(i * step, R + 7); return { tx, ty, tx2, ty2 }; });
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ overflow: 'visible' }}>
+        {/* concentric hairline rings — frame the dial */}
+        <circle cx={cx} cy={cy} r={R + 7} fill="none" stroke="var(--line-soft)" strokeWidth="0.7" />
+        <circle cx={cx} cy={cy} r={r - 3} fill="none" stroke="var(--line-soft)" strokeWidth="0.7" />
+        {ticks.map((t, i) => <line key={'k' + i} x1={t.tx} y1={t.ty} x2={t.tx2} y2={t.ty2} stroke="var(--line)" strokeWidth="0.7" />)}
         {ids.map((id, i) => {
-          const t = TAGS[id]; const on = sel.includes(id); const ro = on ? R + 5 : R;
+          const t = TAGS[id]; const on = sel.includes(id); const ro = on ? R + 6 : R;
           const blocked = atMax && !on;
+          const op = on ? 0.92 : (hover === i ? 0.20 : 0.05);   // faint idle → engraved, not a grey pie
           return (
             <path key={id} d={sector(i, ro, r)}
-              fill="var(--ink)" fillOpacity={on ? 0.95 : (hover === i ? 0.55 : 0.22)}
-              stroke={on ? 'var(--ink-max)' : 'var(--line-soft)'} strokeWidth={on ? 1.5 : 0.8}
+              fill="var(--ink)" fillOpacity={op}
+              stroke={on ? 'var(--ink-max)' : 'var(--line)'} strokeWidth={on ? 1.4 : 0.7}
               style={{ cursor: blocked ? 'not-allowed' : 'pointer', transition: 'all .22s var(--ease)' }}
               onClick={() => { if (!blocked) onToggle(id); }}
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
@@ -3586,11 +3543,11 @@ function GenreWheel({ selected, onToggle, multi = true, size = 260, max }) {
             </path>
           );
         })}
-        <text x={cx} y={cy - 3} textAnchor="middle" style={{ fontFamily: 'var(--display)', fontWeight: 700, fontSize: 15, fill: 'var(--ink)' }}>
+        <text x={cx} y={cy - 3} textAnchor="middle" style={{ fontFamily: 'var(--display)', fontWeight: 700, fontSize: 13.5, letterSpacing: '-.01em', fill: 'var(--ink)' }}>
           {active != null ? TAGS[ids[active]].label : (multi ? 'Жанры' : 'Жанр')}
         </text>
-        <text x={cx} y={cy + 14} textAnchor="middle" style={{ fontFamily: 'var(--mono)', fontSize: 8.5, fill: 'var(--ink-3)', letterSpacing: '.1em' }}>
-          {multi ? (sel.length + (max ? ' / ' + max : '') + ' выбрано') : (sel.length ? 'выбран' : 'выбери сектор')}
+        <text x={cx} y={cy + 13} textAnchor="middle" style={{ fontFamily: 'var(--mono)', fontSize: 7.5, fill: 'var(--ink-3)', letterSpacing: '.2em' }}>
+          {(multi ? (sel.length + (max ? ' / ' + max : '') + ' ВЫБРАНО') : (sel.length ? 'ВЫБРАН' : 'ВЫБЕРИ'))}
         </text>
       </svg>
     </div>
@@ -4139,7 +4096,10 @@ function App() {
   }, [theme, accent, font, scale, atmos, plugins, customs]);
 
   const ROUTE_LABEL = { home: 'Главная', catalog: 'Каталог', reader: 'Древо', compose: 'Писать', merge: 'Слияние', lore: 'Кодекс мира', stakes: 'Канон-ставки', room: 'Комната авторов', cut: 'Сборка читателя', plugins: 'Расширения', feed: 'Лента', communities: 'Сообщества', community: 'Сообщество', profile: 'Профиль' };
+  // Маршруты, требующие входа: гостя не кидаем на мёртвый экран — открываем форму.
+  const AUTH_ROUTES = new Set(['profile', 'compose', 'merge', 'stakes', 'room', 'cut']);
   const go = (r, payload) => {
+    if (AUTH_ROUTES.has(r) && !user) { openAuth('login'); return; }
     setHist(h => (r === route ? h : [...h, { route, ctx }]));
     if (payload) setCtx(c => ({ ...c, ...payload }));
     setRoute(r);

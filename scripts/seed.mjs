@@ -174,12 +174,17 @@ async function ensureAuthor(pb, handle) {
   const h = String(handle || 'author').toLowerCase();
   const existing = await findOne(pb, 'users', 'handle = {:h}', { h });
   if (existing) return existing;
-  const email = `${h.replace(/[^a-z0-9]+/g, '.')}@seed.wyrm.local`;
+  // Build a VALID email local-part: collapse non-alnum runs to a single dot,
+  // then trim leading/trailing dots (a handle like "nyx___" would otherwise
+  // yield "nyx.@…", which PocketBase rejects as an invalid address).
+  const local = h.replace(/[^a-z0-9]+/g, '.').replace(/\.{2,}/g, '.').replace(/^\.+|\.+$/g, '') || 'author';
+  const email = `${local}@seed.wyrm.local`;
   // Placeholder author accounts exist only to satisfy `author` relations —
   // nobody logs into them. Use a RANDOM, unknowable password so the seed can
   // never create a guessable account in production. Override with
   // SEED_AUTHOR_PASSWORD only if you deliberately need to sign in as a seed author.
-  const password = process.env.SEED_AUTHOR_PASSWORD || `Wyrm-${randomUUID()}-${randomUUID()}`;
+  // PocketBase caps passwords at 72 chars; two UUIDs (78) overflow it, so trim.
+  const password = process.env.SEED_AUTHOR_PASSWORD || `Wyrm-${randomUUID()}-${randomUUID()}`.slice(0, 70);
   try {
     const rec = await pb.collection('users').create({
       email,
