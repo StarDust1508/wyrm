@@ -8,6 +8,8 @@ import { t } from './lib/i18n.js'
 // Chapter-HTML sanitizer + the Tiptap rich editor live in their own modules.
 import { cleanHtml } from './lib/sanitize.js'
 import { RichEditor } from './Editor.jsx'
+import { LEGAL } from './lib/legal.js'
+import { DonatePage } from './Donate.jsx'
 
 // React/ReactDOM are referenced by name throughout the modules below.
 window.React = React; window.ReactDOM = ReactDOM;
@@ -308,16 +310,48 @@ function CanonMeter({ score, gold }) {
 
 /* striped image placeholder (per guidelines — never hand-draw art) */
 function CoverSlot({ label, ratio = '3 / 4', hue = 200, src }) {
+  const title = (label || '').replace(/^\s*обложка\s*[·:]?\s*/i, '').trim() || '—';
+  // детерминированный «геном» обложки из названия (FNV-1a → LCG)
+  let hh = 2166136261;
+  for (let i = 0; i < title.length; i++) { hh ^= title.charCodeAt(i); hh = Math.imul(hh, 16777619); }
+  let sd = (hh >>> 0) || 1;
+  const rnd = () => { sd = (Math.imul(sd, 1664525) + 1013904223) >>> 0; return sd / 4294967296; };
+  const initial = (title[0] || '—').toUpperCase();
+  // процедурное древо-гравюра — метафора платформы: каждая история есть древо
+  const W = 120, H = 160, segs = [];
+  const grow = (x, y, ang, len, depth) => {
+    if (depth <= 0 || len < 6) return;
+    const nx = x + Math.cos(ang) * len, ny = y + Math.sin(ang) * len;
+    segs.push([x, y, nx, ny, depth]);
+    const forks = 1 + (rnd() < 0.62 ? 1 : 0);
+    for (let i = 0; i < forks; i++) grow(nx, ny, ang + (rnd() - 0.5) * 1.15, len * (0.6 + rnd() * 0.17), depth - 1);
+  };
+  grow(W / 2, H - 6, -Math.PI / 2 + (rnd() - 0.5) * 0.3, 30 + rnd() * 10, 5);
+  const goldIdx = segs.length ? Math.floor(rnd() * segs.length) : -1;
   return (
-    <div style={{
-      aspectRatio: ratio, width: '100%', borderRadius: 0, overflow: 'hidden',
-      border: '1px solid var(--line)', position: 'relative',
-      background: src ? 'var(--bg-2)' : `repeating-linear-gradient(135deg, var(--bg-2) 0 11px, var(--bg-3) 11px 22px)`,
-      display: 'grid', placeItems: 'center'
-    }}>
-      {src
-        ? <img src={src} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(1) contrast(1.03)' }} />
-        : <span className="mono" style={{ color: 'var(--ink-3)', fontSize: '.6rem', padding: '0 1em', textAlign: 'center', zIndex: 1 }}>{label}</span>}
+    <div className="cover" style={{ aspectRatio: ratio, width: '100%', overflow: 'hidden', border: '1px solid var(--line)', position: 'relative', background: 'var(--bg-2)' }}>
+      {src ? (
+        <img src={src} alt={label} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(1) contrast(1.03)' }} />
+      ) : (
+        <React.Fragment>
+          <svg className="cover-inner" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid slice" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} aria-hidden="true">
+            {segs.map(([x1, y1, x2, y2, d], i) => (
+              <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
+                stroke={i === goldIdx ? 'var(--gold)' : 'var(--ink)'}
+                strokeWidth={i === goldIdx ? 1.2 : Math.max(0.4, d * 0.3)}
+                strokeLinecap="round"
+                opacity={i === goldIdx ? 0.9 : 0.16 + d * 0.04} />
+            ))}
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}>
+            <span className="display" style={{ fontSize: 'clamp(2.4rem,7.4vw,4.6rem)', fontWeight: 700, color: 'var(--ink)', opacity: .18, letterSpacing: '-.03em' }}>{initial}</span>
+          </div>
+          <div className="cover-frame" style={{ position: 'absolute', inset: 6, border: '1px solid var(--gold)', opacity: .32, pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '10px 10px 8px', background: 'linear-gradient(to top, var(--bg-2) 30%, transparent)' }}>
+            <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-2)', letterSpacing: '.05em', textTransform: 'uppercase', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>
+          </div>
+        </React.Fragment>
+      )}
     </div>
   );
 }
@@ -537,7 +571,7 @@ function StoryTree({ orientation = 'vertical', selected, onSelect, onFork, activ
                 transition: 'transform .3s var(--ease), box-shadow .3s, opacity .35s, border-color .25s',
               }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>гл · {n.id.toUpperCase()}</span>
+                <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)' }}>глава</span>
                 {n.canon
                   ? <span style={{ color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: 3 }}><Icon name="star" size={12} /><span className="mono" style={{ fontSize: '.5rem' }}>КАНОН</span></span>
                   : <span style={{ color: 'var(--ink-3)' }}><Icon name="branch" size={12} /></span>}
@@ -605,6 +639,16 @@ function PageHead({ index, eyebrow, title, lede, meta, children }) {
 function Landing({ go }) {
   const ref = useReveal();
   const { FLAGSHIP } = window.WYRM;
+  // Витрина «главное произведение»: в проде берём реальную историю из БД
+  // (hot → первая), при пустой платформе строку не показываем. В демо — FLAGSHIP.
+  const [featured, setFeatured] = useState(() => store.enabled ? null : FLAGSHIP);
+  useEffect(() => {
+    if (!store.enabled) return;
+    let on = true;
+    store.listStories().then(list => { if (on) { const arr = list || []; setFeatured(arr.find(s => s.hot) || arr[0] || null); } });
+    return () => { on = false; };
+  }, []);
+  const openFeatured = () => featured ? go('reader', { story: featured.id, storyTitle: featured.title, storyAuthor: featured.author, node: null }) : go('catalog');
   const features = [
     { n: '01', icon: 'branch', t: 'Древо Истории', d: 'Не список глав, а живая карта. Корень — завязка, ветви — альтернативные судьбы. Читать здесь — значит исследовать.' },
     { n: '02', icon: 'star',   t: 'Голосование за канон', d: 'Сообщество решает, какая ветка — главная. Самая сильная линия загорается золотом и становится каноном.' },
@@ -623,37 +667,39 @@ function Landing({ go }) {
             Множество авторов добавляют главы в одно произведение. Каждая развилка — новая судьба героев. Читатель выбирает путь — и сам становится соавтором.
           </p>
           <div style={{ display: 'flex', gap: 12, marginLeft: 'auto' }}>
-            <button className="btn btn-primary" onClick={() => go('reader', { story: 'ashes', node: null })}><Icon name="branch" size={16} />Открыть древо</button>
+            <button className="btn btn-primary" onClick={() => featured ? openFeatured() : go('compose')}><Icon name={featured ? 'branch' : 'quill'} size={16} />{featured ? 'Открыть древо' : 'Начать историю'}</button>
             <button className="btn btn-ghost" onClick={() => go('catalog')}>Каталог историй</button>
           </div>
         </div>
       </section>
 
-      {/* FLAGSHIP STRIP */}
+      {/* FLAGSHIP STRIP — только если есть избранная история (в проде из БД) */}
+      {featured && (
       <section className="wrap reveal" style={{ paddingBottom: 80 }}>
         <div className="card framed" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: 0, overflow: 'hidden' }}>
           <div style={{ padding: 'clamp(28px,4vw,48px)' }}>
             <div className="eyebrow" style={{ marginBottom: 16 }}>Главное произведение недели</div>
-            <h2 className="display" style={{ fontSize: 'clamp(2rem,4vw,3.4rem)', marginBottom: 18 }}>{FLAGSHIP.title}</h2>
-            <p style={{ color: 'var(--ink-2)', maxWidth: '46ch', marginBottom: 24 }}>{FLAGSHIP.synopsis}</p>
+            <h2 className="display" style={{ fontSize: 'clamp(2rem,4vw,3.4rem)', marginBottom: 18 }}>{featured.title}</h2>
+            <p style={{ color: 'var(--ink-2)', maxWidth: '46ch', marginBottom: 24 }}>{featured.synopsis}</p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 26 }}>
-              {FLAGSHIP.tags.map(t => <Tag key={t} id={t} />)}
+              {(featured.tags || []).map(t => <Tag key={t} id={t} />)}
             </div>
             <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap', marginBottom: 28 }}>
-              {[['Соавторов', FLAGSHIP.contributors], ['Ветвей', FLAGSHIP.branches], ['Читают канон', FLAGSHIP.canonReaders]].map(([k, v]) => (
+              {[['Соавторов', featured.contributors], ['Ветвей', featured.branches], ['Читают канон', featured.canonReaders]].filter(([, v]) => v != null).map(([k, v]) => (
                 <div key={k}>
                   <div className="display" style={{ fontSize: '1.9rem' }}>{v}</div>
                   <div className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)' }}>{k}</div>
                 </div>
               ))}
             </div>
-            <button className="btn btn-primary" onClick={() => go('reader', { story: 'ashes', node: null })}>Читать и ветвить<Icon name="arrow" size={16} /></button>
+            <button className="btn btn-primary" onClick={openFeatured}>Читать и ветвить<Icon name="arrow" size={16} /></button>
           </div>
           <div style={{ position: 'relative', borderLeft: 'var(--rule-style)', minHeight: 320 }}>
-            <MiniTree onOpen={() => go('reader', { story: 'ashes', node: null })} />
+            <MiniTree onOpen={openFeatured} />
           </div>
         </div>
       </section>
+      )}
 
       {/* FEATURES — editorial numbered */}
       <section className="wrap" style={{ paddingBottom: 90 }}>
@@ -722,8 +768,8 @@ function MiniTree({ onOpen }) {
 function Catalog({ go }) {
   const ref = useReveal();
   const { TAGS } = window.WYRM;
-  const [STORIES, setStories] = useState(() => (window.WYRM.STORIES || []).slice());
-  useEffect(() => { let on = true; store.listStories().then(s => { if (on && s && s.length) setStories(s); }); return () => { on = false; }; }, []);
+  const [STORIES, setStories] = useState(() => store.enabled ? [] : (window.WYRM.STORIES || []).slice());
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on && (store.enabled || (s && s.length))) setStories(s || []); }); return () => { on = false; }; }, []);
   const [active, setActive] = useState(null);
   const [sort, setSort] = useState('hot');
   const allTags = Object.keys(TAGS);
@@ -1071,109 +1117,152 @@ function useStoryNodes(storyId) {
 /* Режим Чтения: книжная колонка с комфортной типографикой, ясным каноном
    и понятным выбором на каждой развилке (канон vs ветви «а что, если…»). */
 function ReadingColumn({ nodes, byId, curId, setSel, vote, myVotes, goFork, fontScale, setFontScale }) {
+  // настройки чтения (сохраняются) — объявлены ДО любых ранних return (правила хуков)
+  const [rTheme, setRTheme] = useState(() => wyrmLoad('wyrm.readTheme', 'paper'));
+  const [rWidth, setRWidth] = useState(() => wyrmLoad('wyrm.readWidth', 'normal'));
+  const [rSerif, setRSerif] = useState(() => wyrmLoad('wyrm.readSerif', false));
   const node = byId[curId];
   if (!node) return null;
   const path = [...ancestorsOf(curId, byId)].reverse();
   const children = nodes.filter(n => n.parent === curId);
   const canonChild = children.find(c => c.canon);
   const alts = children.filter(c => !c.canon);
+  // НЕПРЕРЫВНЫЙ ПОТОК: путь(корень→текущая) + продолжение по канону до конца линии.
+  // Клик по развилке меняет sel → поток перестраивается от развилки (текст выше не трогается).
+  const upPath = [...ancestorsOf(curId, byId)].reverse();
+  const seenS = new Set(upPath);
+  const fwd = [];
+  { let tid = curId; while (true) { const cc = nodes.find(x => x.parent === tid && x.canon); if (!cc || seenS.has(cc.id)) break; fwd.push(cc.id); seenS.add(cc.id); tid = cc.id; } }
+  const streamIds = [...upPath, ...fwd];
+  const stream = streamIds.map(id => byId[id]).filter(Boolean);
   const setScale = (d) => setFontScale(s => { const v = Math.max(0.85, Math.min(1.6, +(s + d).toFixed(2))); wyrmSave('wyrm.readScale', v); return v; });
+  const pickTheme = (t) => { setRTheme(t); wyrmSave('wyrm.readTheme', t); };
+  const pickWidth = (w) => { setRWidth(w); wyrmSave('wyrm.readWidth', w); };
+  const READ_THEMES = {
+    paper: {},
+    sepia: { '--bg': '#f3e9d6', '--bg-2': '#ece0c9', '--bg-3': '#e4d6b9', '--panel': '#f7efdd', '--ink': '#3b3020', '--ink-2': '#6a5a41', '--ink-3': '#9c8b6e', '--ink-max': '#2e2413', '--accent': '#2e2413', '--accent-ink': '#f3e9d6', '--gold': '#8a6d24', '--line': 'rgba(59,48,32,.20)' },
+    night: { '--bg': '#181510', '--bg-2': '#201c16', '--bg-3': '#2a251d', '--panel': '#201c16', '--ink': '#e6ded0', '--ink-2': '#b3a891', '--ink-3': '#7d7361', '--ink-max': '#e6ded0', '--accent': '#e6ded0', '--accent-ink': '#181510', '--gold': '#c9a24b', '--line': 'rgba(230,222,208,.18)' },
+  };
+  const READ_W = { narrow: '34rem', normal: '40rem', wide: '46rem' };
+  const themed = rTheme !== 'paper';
+  const bodyFont = rSerif ? "'Georgia','Times New Roman',serif" : 'var(--serif)';
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', ...READ_THEMES[rTheme],
+      background: themed ? 'var(--bg)' : 'transparent',
+      color: themed ? 'var(--ink)' : 'inherit',
+      padding: themed ? 'clamp(18px,3vw,34px) clamp(14px,3vw,28px)' : 0,
+      border: themed ? '1px solid var(--line)' : 'none',
+      transition: 'background .35s var(--ease), color .35s var(--ease)' }}>
       {/* панель чтения: путь + размер шрифта */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', color: 'var(--ink-3)' }}>
-          <span className="mono" style={{ fontSize: '.54rem' }}>путь канона:</span>
-          {path.map((id, i) => (
-            <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <button className="mono path-crumb" onClick={() => setSel(id)} style={{ fontSize: '.56rem', color: id === curId ? 'var(--accent)' : (byId[id].canon ? 'var(--gold)' : 'var(--ink-2)') }}>{byId[id].title}</button>
-              {i < path.length - 1 && <span style={{ opacity: .5 }}>›</span>}
-            </span>
-          ))}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: 'var(--ink-3)' }}>
+          <span className="mono" style={{ fontSize: '.54rem', letterSpacing: '.1em', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="eye" size={12} />непрерывная линия · {stream.length} глав</span>
         </div>
-        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-          <button className="icon-btn" title="Меньше" onClick={() => setScale(-0.1)} style={{ width: 30, height: 30, fontFamily: 'var(--display)', fontSize: 12 }}>А−</button>
-          <button className="icon-btn" title="Больше" onClick={() => setScale(0.1)} style={{ width: 30, height: 30, fontFamily: 'var(--display)', fontSize: 15 }}>А+</button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* тема чтения */}
+          <div style={{ display: 'flex', gap: 3 }} role="group" aria-label="Тема чтения">
+            {[['paper', 'Бумага', '#faf9f5'], ['sepia', 'Сепия', '#f3e9d6'], ['night', 'Ночь', '#181510']].map(([k, t, c]) => (
+              <button key={k} title={t} aria-label={t} aria-pressed={rTheme === k} onClick={() => pickTheme(k)}
+                style={{ width: 20, height: 20, cursor: 'pointer', background: c, borderRadius: 0, padding: 0,
+                  border: '1px solid ' + (rTheme === k ? 'var(--ink)' : 'var(--line)'),
+                  boxShadow: rTheme === k ? 'inset 0 0 0 2px var(--bg)' : 'none', transition: 'border-color .2s, box-shadow .2s' }} />
+            ))}
+          </div>
+          {/* ширина колонки */}
+          <div style={{ display: 'flex' }} role="group" aria-label="Ширина колонки">
+            {[['narrow', 'уже'], ['normal', 'норма'], ['wide', 'шире']].map(([k, t]) => (
+              <button key={k} title={t} aria-label={t} aria-pressed={rWidth === k} onClick={() => pickWidth(k)} className="mono"
+                style={{ padding: '3px 7px', cursor: 'pointer', fontSize: '.5rem', letterSpacing: '.08em', textTransform: 'uppercase', marginLeft: -1,
+                  color: rWidth === k ? 'var(--accent-ink)' : 'var(--ink-2)', background: rWidth === k ? 'var(--ink-max)' : 'transparent',
+                  border: '1px solid var(--line)', transition: 'background .2s, color .2s' }}>{t}</button>
+            ))}
+          </div>
+          {/* засечки */}
+          <button className="icon-btn" title="Шрифт с засечками" aria-pressed={rSerif} onClick={() => setRSerif(v => { wyrmSave('wyrm.readSerif', !v); return !v; })}
+            style={{ width: 30, height: 30, fontFamily: rSerif ? "'Georgia',serif" : 'var(--ui)', fontSize: 14, background: rSerif ? 'var(--ink-max)' : 'transparent', color: rSerif ? 'var(--accent-ink)' : 'var(--ink)' }}>Aa</button>
+          {/* размер */}
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <button className="icon-btn" title="Меньше" onClick={() => setScale(-0.1)} style={{ width: 30, height: 30, fontFamily: 'var(--display)', fontSize: 12 }}>А−</button>
+            <button className="icon-btn" title="Больше" onClick={() => setScale(0.1)} style={{ width: 30, height: 30, fontFamily: 'var(--display)', fontSize: 15 }}>А+</button>
+          </div>
         </div>
       </div>
 
-      <article style={{ maxWidth: '40rem', margin: '0 auto', fontSize: fontScale + 'em' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-          <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>глава {path.length} · {node.id.toUpperCase()}</span>
-          {node.canon
-            ? <span className="mono" style={{ fontSize: '.56rem', color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="star" size={12} />каноничная линия</span>
-            : <span className="mono" style={{ fontSize: '.56rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="branch" size={12} />ветвь · вне канона</span>}
-        </div>
-        <h2 className="display" style={{ fontSize: '2.1em', lineHeight: 1.05, marginBottom: 14 }}>{node.title}</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
-          <Avatar name={node.author} size={26} />
-          <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)' }}>@{node.author} · {node.words || 0} слов</span>
-        </div>
+      <article style={{ maxWidth: READ_W[rWidth], margin: '0 auto', fontSize: fontScale + 'em', transition: 'max-width .3s var(--ease)' }}>
+        {stream.map((n, i) => {
+          const isLast = i === stream.length - 1;
+          const nextTakenId = streamIds[i + 1];
+          const nChildren = nodes.filter(x => x.parent === n.id);
+          const nAlts = nChildren.filter(c => c.id !== nextTakenId);   // «дороги не пройденные» (кроме той, что читаем дальше)
+          return (
+            <section key={n.id} id={'ch-' + n.id} style={{ scrollMarginTop: 80 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>глава {i + 1}</span>
+                {n.canon
+                  ? <span className="mono" style={{ fontSize: '.56rem', color: 'var(--gold)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="star" size={12} />каноничная линия</span>
+                  : <span className="mono" style={{ fontSize: '.56rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="branch" size={12} />ветвь · вне канона</span>}
+              </div>
+              <h2 className="display" style={{ fontSize: '2.1em', lineHeight: 1.05, marginBottom: 14 }}>{n.title}</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
+                <Avatar name={n.author} size={26} />
+                <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)' }}>@{n.author} · {n.words || 0} слов</span>
+              </div>
 
-        {node.html
-          ? <div className="serif rich-read" style={{ fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }} dangerouslySetInnerHTML={{ __html: cleanHtml(node.html) }} />
-          : <p className="serif" style={{ fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }}>{node.excerpt}</p>}
+              {n.html
+                ? <div className="serif rich-read" style={{ fontFamily: bodyFont, fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }} dangerouslySetInnerHTML={{ __html: cleanHtml(n.html) }} />
+                : <p className="serif" style={{ fontFamily: bodyFont, fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }}>{n.excerpt}</p>}
 
-        {node.tags && node.tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '20px 0' }}>{node.tags.map(t => <Tag key={t} id={t} />)}</div>}
+              {n.tags && n.tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '18px 0' }}>{n.tags.map(t => <Tag key={t} id={t} />)}</div>}
 
-        <div style={{ display: 'flex', gap: 8, margin: '20px 0 32px', flexWrap: 'wrap' }}>
-          <button className="btn btn-ghost btn-sm" onClick={() => vote(curId)} style={{ borderColor: myVotes[curId] ? 'var(--gold)' : 'var(--line)', color: myVotes[curId] ? 'var(--gold)' : 'var(--ink)' }}>
-            <Icon name={myVotes[curId] ? 'check' : 'star'} size={14} />{myVotes[curId] ? 'Голос учтён' : 'За канон'}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => goFork(curId)}><Icon name="fork" size={14} />А что, если…</button>
-          {path.length > 1 && <button className="btn btn-ghost btn-sm" onClick={() => setSel(node.parent)}><Icon name="arrowL" size={14} />Назад</button>}
-        </div>
-
-        {/* продолжение: ясный выбор канон vs ветви */}
-        <div style={{ borderTop: 'var(--rule-style)', paddingTop: 22 }}>
-          {children.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '10px 0' }}>
-              <p className="serif-italic" style={{ color: 'var(--ink-2)', marginBottom: 14 }}>Здесь история обрывается. Дальше ещё никто не написал.</p>
-              <button className="btn btn-primary" onClick={() => goFork(curId)}><Icon name="quill" size={15} />Написать продолжение</button>
-            </div>
-          ) : (
-            <React.Fragment>
-              <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginBottom: 12 }}>Что дальше</div>
-              {canonChild && (
-                <button onClick={() => setSel(canonChild.id)} className="card" style={{ width: '100%', textAlign: 'left', padding: '16px 18px', marginBottom: 10, borderColor: 'var(--gold)', boxShadow: 'var(--canon-glow)', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                  <span style={{ color: 'var(--gold)' }}><Icon name="star" size={18} /></span>
-                  <span style={{ flex: 1 }}>
-                    <span className="mono" style={{ fontSize: '.5rem', color: 'var(--gold)', display: 'block' }}>ДАЛЬШЕ ПО КАНОНУ</span>
-                    <span className="display" style={{ fontSize: '1.1rem' }}>{canonChild.title}</span>
-                    <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', display: 'block' }}>@{canonChild.author}</span>
-                  </span>
-                  <Icon name="arrow" size={18} />
+              <div style={{ display: 'flex', gap: 8, margin: '16px 0', flexWrap: 'wrap' }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => vote(n.id)} style={{ borderColor: myVotes[n.id] ? 'var(--gold)' : 'var(--line)', color: myVotes[n.id] ? 'var(--gold)' : 'var(--ink)' }}>
+                  <Icon name={myVotes[n.id] ? 'check' : 'star'} size={13} />{myVotes[n.id] ? 'Голос учтён' : 'За канон'}
                 </button>
-              )}
-              {alts.length > 0 && (
-                <React.Fragment>
-                  <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', margin: '12px 0 8px' }}>развилки · а что, если… ({alts.length})</div>
+                <button className="btn btn-ghost btn-sm" onClick={() => goFork(n.id)}><Icon name="fork" size={13} />А что, если…</button>
+              </div>
+
+              {nAlts.length > 0 && (
+                <div style={{ borderLeft: '2px solid var(--line)', paddingLeft: 14, margin: '10px 0 6px' }}>
+                  <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)', marginBottom: 8 }}>{isLast ? 'что дальше · выбери продолжение' : 'развилки · а что, если…'} ({nAlts.length})</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {alts.map(a => (
-                      <button key={a.id} onClick={() => setSel(a.id)} className="story-card card" style={{ textAlign: 'left', padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                        <span style={{ color: 'var(--accent)' }}><Icon name="fork" size={15} /></span>
+                    {nAlts.map(a => (
+                      <button key={a.id} onClick={() => setSel(a.id)} className="story-card card" style={{ textAlign: 'left', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                        <span style={{ color: a.canon ? 'var(--gold)' : 'var(--accent)' }}><Icon name={a.canon ? 'star' : 'fork'} size={14} /></span>
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ fontWeight: 600, display: 'block' }}>{a.title}</span>
-                          <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>@{a.author} · {a.votes || 0} голосов</span>
+                          <span className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)' }}>@{a.author} · {a.votes || 0} голосов{a.canon ? ' · канон' : ''}</span>
                         </span>
-                        <span style={{ width: 90 }}><CanonMeter score={a.score} /></span>
+                        <span style={{ width: 84 }}><CanonMeter score={a.score} gold={a.canon} /></span>
                       </button>
                     ))}
                   </div>
-                </React.Fragment>
+                </div>
               )}
-            </React.Fragment>
-          )}
-        </div>
+
+              {isLast && nChildren.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '20px 0 6px', borderTop: 'var(--rule-style)', marginTop: 18 }}>
+                  <p className="serif-italic" style={{ color: 'var(--ink-2)', marginBottom: 14 }}>Здесь история обрывается. Дальше ещё никто не написал.</p>
+                  <button className="btn btn-primary" onClick={() => goFork(n.id)}><Icon name="quill" size={15} />Написать продолжение</button>
+                </div>
+              )}
+
+              {!isLast && <div className="mono" aria-hidden="true" style={{ textAlign: 'center', color: 'var(--ink-3)', opacity: .55, margin: '30px 0', letterSpacing: '.4em', fontSize: '.7rem' }}>— ✦ —</div>}
+            </section>
+          );
+        })}
       </article>
     </div>
   );
 }
 
 function Reader({ go, ctx, setCtx }) {
-  const { FLAGSHIP, CHARACTERS, STORIES } = window.WYRM;
-  const story = STORIES.find(s => s.id === ctx.story) || FLAGSHIP;
+  const { FLAGSHIP, CHARACTERS } = window.WYRM;
+  // Переключатель «КНИГА» — реальные истории из БД (а не mock window.WYRM.STORIES),
+  // как в Каталоге: в PB-режиме стартуем пустым и подгружаем store.listStories().
+  const [STORIES, setStories] = useState(() => store.enabled ? [] : (window.WYRM.STORIES || []).slice());
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on && (store.enabled || (s && s.length))) setStories(s || []); }); return () => { on = false; }; }, []);
+  const story = STORIES.find(s => s.id === ctx.story) || (store.enabled ? { id: ctx.story, title: ctx.storyTitle || 'История', author: ctx.storyAuthor || '', author_handle: ctx.storyAuthor || '' } : FLAGSHIP);
   const { nodes: NODES, vote, myVotes, loading } = useStoryNodes(story.id);
   const [sel, setSel] = useState(ctx.node || null);
   const [orient, setOrient] = useState('vertical');
@@ -1292,7 +1381,7 @@ function Reader({ go, ctx, setCtx }) {
           {/* node detail */}
           <div className="card framed" style={{ padding: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>глава · {node.id.toUpperCase()}</span>
+              <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>глава</span>
               {node.canon
                 ? <span className="mono" style={{ color: 'var(--gold)', fontSize: '.56rem', display: 'inline-flex', gap: 4, alignItems: 'center' }}><Icon name="star" size={12} />Канон</span>
                 : <span className="mono" style={{ color: 'var(--ink-3)', fontSize: '.56rem' }}>альт. ветвь</span>}
@@ -1371,8 +1460,8 @@ function Compose({ go, ctx, setCtx }) {
   // узлы читаем через store (PB в бою, иначе сид/localStorage), а не из
   // window.WYRM напрямую — в PB-режиме родитель развилки и навигатор глав
   // должны приходить из БД. Стартуем с сида, чтобы первый рендер был не пустым.
-  const [NODES, setNODES] = useState(() => window.WYRM.nodesFor(storyId));
-  useEffect(() => { let on = true; store.listNodes(storyId).then(n => { if (on && n && n.length) setNODES(n); }); return () => { on = false; }; }, [storyId]);
+  const [NODES, setNODES] = useState(() => store.enabled ? [] : window.WYRM.nodesFor(storyId));
+  useEffect(() => { let on = true; store.listNodes(storyId).then(n => { if (on && (store.enabled || (n && n.length))) setNODES(n || []); }); return () => { on = false; }; }, [storyId]);
   const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
   // safe-фолбэк: NODES может быть [] для PB-only/только что созданной истории,
   // пока listNodes не подгрузился — без этого useState(parent.tags) уронит экран (M3).
@@ -1413,7 +1502,31 @@ function Compose({ go, ctx, setCtx }) {
   const goalPct = desk.goal ? Math.min(100, Math.round(words / desk.goal * 100)) : 0;
   // автосейв черновика главы (тело больше не теряется при перезагрузке — T4)
   useEffect(() => { wyrmSave('wyrm.draft', { title, body, synopsis }); }, [title, body, synopsis]);
-  const clearDraft = () => wyrmSave('wyrm.draft', {});
+  // ---- Верстак 2.0: мультичерновики в БД (автосейв + восстановление, без затирания) ----
+  const [draftId, setDraftId] = useState(null);
+  const [myDrafts, setMyDrafts] = useState([]);
+  const draftIdRef = useRef(null); draftIdRef.current = draftId;
+  const loadDraft = (d) => { setDraftId(d.id); setTitle(d.title || ''); setBody(d.html || ''); setSynopsis(d.synopsis || ''); if (d.tags && d.tags.length) setTags(d.tags); if (d.notes) saveNotes(d.notes); };
+  const reloadDrafts = () => store.listDrafts(mode === 'fork' ? storyId : '').then(list => setMyDrafts((list || []).filter(d => (d.kind || 'newbook') === mode)));
+  useEffect(() => { let on = true; store.listDrafts(mode === 'fork' ? storyId : '').then(list => {
+    if (!on) return;
+    const rel = (list || []).filter(d => (d.kind || 'newbook') === mode);
+    setMyDrafts(rel);
+    if (rel.length && !title.trim() && !htmlToText(body).trim()) loadDraft(rel[0]);   // восстановить последний
+  }); return () => { on = false; }; }, [mode, storyId]);
+  const autosaveT = useRef(0);
+  useEffect(() => {
+    if (!store.enabled) return;
+    if (!title.trim() && !htmlToText(body).trim()) return;
+    clearTimeout(autosaveT.current);
+    autosaveT.current = setTimeout(async () => {
+      const saved = await store.saveDraft(draftIdRef.current, { kind: mode, story: mode === 'fork' ? storyId : '', parent: mode === 'fork' ? (ctx.forkFrom || parent.id) : '', title, synopsis, html: body, notes, tags, chars, words });
+      if (saved && saved.id && !draftIdRef.current) setDraftId(saved.id);
+    }, 1400);
+    return () => clearTimeout(autosaveT.current);
+  }, [title, body, synopsis, notes, tags, mode, storyId]);   // eslint: намеренно без chars/parent — они меняются реже
+  const clearDraft = () => { wyrmSave('wyrm.draft', {}); const id = draftIdRef.current; if (id && store.enabled) store.deleteDraft(id); setDraftId(null); reloadDrafts(); };
+  const newDraft = () => { const id = draftIdRef.current; if (id && store.enabled) store.deleteDraft(id); wyrmSave('wyrm.draft', {}); setDraftId(null); setTitle(''); setBody(''); setSynopsis(''); reloadDrafts(); };
   const slug = (s) => (s || '').toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'kniga';
   const resetForm = () => { clearDraft(); setDone(false); setTitle(''); setBody(''); setSynopsis(''); setNewId(null); setBookId(null); };
 
@@ -1436,11 +1549,24 @@ function Compose({ go, ctx, setCtx }) {
   };
 
   const ModeToggle = () => (
-    <div style={{ display: 'flex', gap: 4, padding: 3, border: '1px solid var(--line)', borderRadius: 4, marginBottom: 22, width: 'fit-content' }}>
-      {[['newbook', 'Новая книга'], ['fork', 'Дописать существующую']].map(([k, l]) => (
-        <button key={k} className="btn btn-sm" onClick={() => setMode(k)}
-          style={{ background: mode === k ? 'var(--accent)' : 'transparent', color: mode === k ? 'var(--accent-ink)' : 'var(--ink-2)' }}>{l}</button>
-      ))}
+    <div style={{ marginBottom: 22 }}>
+      <div style={{ display: 'flex', gap: 4, padding: 3, border: '1px solid var(--line)', borderRadius: 4, width: 'fit-content' }}>
+        {[['newbook', 'Новая книга'], ['fork', 'Дописать существующую']].map(([k, l]) => (
+          <button key={k} className="btn btn-sm" onClick={() => setMode(k)}
+            style={{ background: mode === k ? 'var(--accent)' : 'transparent', color: mode === k ? 'var(--accent-ink)' : 'var(--ink-2)' }}>{l}</button>
+        ))}
+      </div>
+      {store.enabled && myDrafts.length > 0 && (
+        <div className="draft-bar mono">
+          <span>Черновик:</span>
+          <select value={draftId || ''} onChange={e => { const d = myDrafts.find(x => x.id === e.target.value); if (d) loadDraft(d); }}>
+            {!draftId && <option value="">— новый —</option>}
+            {myDrafts.map(d => <option key={d.id} value={d.id}>{(d.title || 'Без названия').slice(0, 36)} · {d.words || 0} сл</option>)}
+          </select>
+          <button type="button" className="draft-new" onClick={newDraft}>+ новый</button>
+          <span className="draft-saved">автосохранение в БД ✓</span>
+        </div>
+      )}
     </div>
   );
 
@@ -1600,7 +1726,7 @@ function Compose({ go, ctx, setCtx }) {
         <main style={{ minWidth: 0 }}>
           <div className="eyebrow" style={{ marginBottom: 12, color: 'var(--accent)' }}>Развилка · а что, если…</div>
           <div className="card" style={{ padding: '12px 14px', marginBottom: 16, borderLeft: '2px solid var(--accent)' }}>
-            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 6 }}>ветвишься от · глава {parent.id.toUpperCase()} «{parent.title}»</div>
+            <div className="mono" style={{ fontSize: '.52rem', color: 'var(--ink-3)', marginBottom: 6 }}>ветвишься от · глава «{parent.title}»</div>
             <p className="serif-italic" style={{ color: 'var(--ink-2)', fontSize: '.92rem' }}>…{(parent.excerpt || '').slice(-150)}</p>
           </div>
           <input className="compose-input display" value={title} onChange={e => setTitle(e.target.value)} placeholder="Название твоей главы"
@@ -1719,7 +1845,9 @@ function MergeHunk({ h, decision, onDecide }) {
 
 function Merge({ go }) {
   const ref = useReveal();
-  const { STORIES } = window.WYRM;
+  // Переключатель истории — реальные книги из БД (не mock window.WYRM.STORIES)
+  const [STORIES, setStories] = useState(() => store.enabled ? [] : (window.WYRM.STORIES || []).slice());
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on && (store.enabled || (s && s.length))) setStories(s || []); }); return () => { on = false; }; }, []);
   const [storyId, setStoryId] = useState('ashes');
   const { nodes } = useStoryNodes(storyId);
   const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
@@ -2711,17 +2839,15 @@ const PLUGIN_CATS = {
 };
 
 /* built-in plugins ship with a working renderer (see PluginHost) */
+// Встроенные расширения — реально реализованы в PluginHost. Метаданные честные
+// (автор — Galathilion, без выдуманных счётчиков установок/рейтингов). Расширения
+// сообщества приходят из БД (коллекция plugins) и добавляются к этому списку.
 const PLUGIN_REGISTRY = [
-  { id: 'embers',   name: 'Угли',            author: 'wyrm.core', cat: 'atmos', slot: 'bg',     glyph: '✦', installs: '48.1k', rating: 4.8, desc: 'Тлеющие угольки дрейфуют по фону — атмосфера логова дракона.' },
-  { id: 'progress', name: 'Прогресс чтения', author: 'lune_v',    cat: 'read',  slot: 'topbar', glyph: '▬', installs: '31.7k', rating: 4.9, desc: 'Тонкая полоса сверху показывает, сколько главы прочитано.' },
-  { id: 'dice',     name: 'Кубик развилки',  author: 'jest_r',    cat: 'game',  slot: 'fab-r',  glyph: '⚄', installs: '22.0k', rating: 4.7, desc: 'Плавающая кнопка бросает тебя в случайную ветку древа.' },
-  { id: 'wordhud',  name: 'Счётчик мира',    author: 'archivar',  cat: 'read',  slot: 'fab-l',  glyph: '∑', installs: '12.4k', rating: 4.6, desc: 'HUD с объёмом канона: сколько слов и глав уже написано.' },
-  { id: 'zen',      name: 'Дзен-чтение',     author: 'reframed',  cat: 'a11y',  slot: 'class',  glyph: '◐', installs: '18.9k', rating: 4.9, desc: 'Приглушает интерфейс и расширяет колонку текста.' },
-  /* community catalog — рендерятся как «значки» (chip) */
-  { id: 'voice',    name: 'Озвучка канона',  author: 'tide.witch', cat: 'a11y', slot: 'chip', glyph: '♪', installs: '9.3k',  rating: 4.5, desc: 'Синтез речи читает золотую линию вслух.' },
-  { id: 'translate',name: 'Переводчик веток',author: 'cogsmith',  cat: 'social', slot: 'chip', glyph: '⇄', installs: '7.1k', rating: 4.4, desc: 'Авто-перевод любой ветки на язык читателя.' },
-  { id: 'tarot',    name: 'Таро героев',     author: 'nyx___',    cat: 'game',  slot: 'chip', glyph: '☾', installs: '5.6k',  rating: 4.3, desc: 'Вытягивает карту-предсказание судьбы для персонажа ветки.' },
-  { id: 'metronome',name: 'Метроном письма', author: 'ashpoet',   cat: 'write', slot: 'chip', glyph: '◷', installs: '4.2k',  rating: 4.6, desc: 'Ритм-таймер для эстафеты в Комнате авторов.' },
+  { id: 'embers',   name: 'Угли',            author: 'Galathilion', cat: 'atmos', slot: 'bg',     glyph: '✦', builtin: true, desc: 'Тлеющие угольки дрейфуют по фону — атмосфера логова дракона.' },
+  { id: 'progress', name: 'Прогресс чтения', author: 'Galathilion', cat: 'read',  slot: 'topbar', glyph: '▬', builtin: true, desc: 'Тонкая полоса сверху показывает, сколько главы прочитано.' },
+  { id: 'dice',     name: 'Кубик развилки',  author: 'Galathilion', cat: 'game',  slot: 'fab-r',  glyph: '⚄', builtin: true, desc: 'Плавающая кнопка бросает тебя в случайную ветку древа.' },
+  { id: 'wordhud',  name: 'Счётчик мира',    author: 'Galathilion', cat: 'read',  slot: 'fab-l',  glyph: '∑', builtin: true, desc: 'HUD с объёмом канона: сколько слов и глав уже написано.' },
+  { id: 'zen',      name: 'Дзен-чтение',     author: 'Galathilion', cat: 'a11y',  slot: 'class',  glyph: '◐', builtin: true, desc: 'Приглушает интерфейс и расширяет колонку текста.' },
 ];
 
 /* ---------- working widgets ---------- */
@@ -2951,12 +3077,12 @@ function PluginsScreen({ state, toggle, customs, addCustom, go }) {
                           <h3 className="display" style={{ fontSize: '1.1rem' }}>{p.name}</h3>
                           {p.custom && <span className="mono" style={{ fontSize: '.44rem', color: 'var(--accent)', border: '1px solid var(--line)', borderRadius: 2, padding: '1px 4px' }}>ТВОЁ</span>}
                         </div>
-                        <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>@{p.author} · {v.label}</div>
+                        <div className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{p.builtin ? p.author : '@' + p.author} · {v.label}</div>
                       </div>
                     </div>
                     <p style={{ fontSize: '.86rem', color: 'var(--ink-2)' }}>{p.desc}</p>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}>
-                      <span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>★ {p.rating} · {p.installs}</span>
+                      <span className="mono" style={{ fontSize: '.5rem', color: 'var(--ink-3)' }}>{p.builtin ? 'встроенное' : p.custom ? 'локальное' : (p.installs != null ? '★ ' + (p.rating != null ? p.rating : '—') + ' · ' + p.installs : 'сообщество')}</span>
                       <button onClick={() => toggle(p.id)} className="toggle" data-on={on} style={{ padding: '5px 11px 5px 5px' }}>
                         <span className="toggle-knob" />
                         <span className="mono" style={{ fontSize: '.52rem', color: on ? 'var(--ink)' : 'var(--ink-2)' }}>{on ? 'Вкл' : 'Выкл'}</span>
@@ -2983,12 +3109,13 @@ Object.assign(window, { PLUGIN_REGISTRY, PluginHost, PluginsScreen });
    Прототип: пользователь хранится в localStorage('wyrm.user').
    ============================================================ */
 
-function AuthModal({ open, mode, setMode, onClose, onAuth }) {
+function AuthModal({ open, mode, setMode, onClose, onAuth, go }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
+  const [consent, setConsent] = useState(false);   // 152-ФЗ: согласие на обработку ПД
   const reg = mode === 'register';
-  const valid = email.includes('@') && pass.length >= 4 && (!reg || name.trim());
+  const valid = email.includes('@') && pass.length >= 8 && (!reg || (name.trim() && consent));
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [providers, setProviders] = useState([]);   // включённые + разрешённые (149-ФЗ) OAuth-провайдеры
@@ -3079,6 +3206,12 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
             <span className="mono">Пароль</span>
             <input className="auth-input" type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" autoComplete={reg ? 'new-password' : 'current-password'} />
           </label>
+          {reg && (
+            <label className="auth-consent">
+              <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} aria-label="Согласие на обработку персональных данных" />
+              <span className="mono">Даю <button type="button" className="cookie-link" onClick={() => { onClose(); go && go('privacy'); }}>согласие на обработку персональных данных</button> и принимаю <button type="button" className="cookie-link" onClick={() => { onClose(); go && go('terms'); }}>Пользовательское соглашение</button>.</span>
+            </label>
+          )}
           <button type="submit" className="btn btn-primary" disabled={!valid || busy} style={{ justifyContent: 'center', marginTop: 6, opacity: valid && !busy ? 1 : .5 }}>
             {busy ? 'Минуту…' : (reg ? 'Создать аккаунт' : 'Войти')}<Icon name="arrow" size={15} />
           </button>
@@ -3120,12 +3253,12 @@ function AuthModal({ open, mode, setMode, onClose, onAuth }) {
 /* колокольчик уведомлений */
 /* плашка подтверждения почты — показывается, только если сервер вернул verified:false */
 function VerifyStrip({ user }) {
-  const [sent, setSent] = useState(false);
+  const [status, setStatus] = useState('');   // '' | 'ok' | 'err'
   return (
     <div className="verify-strip">
       <span className="mono">! Подтверди почту <b>{user.email}</b> — мы отправили ссылку.</span>
-      <button className="mono verify-resend" onClick={async () => { try { await store.requestVerification(user.email); setSent(true); } catch (e) {} }}>
-        {sent ? 'отправлено ✓' : 'отправить снова'}
+      <button className="mono verify-resend" onClick={async () => { try { await store.requestVerification(user.email); setStatus('ok'); } catch (e) { setStatus('err'); } }}>
+        {status === 'ok' ? 'отправлено ✓' : status === 'err' ? 'не удалось (почта не настроена?)' : 'отправить снова'}
       </button>
     </div>
   );
@@ -3784,8 +3917,8 @@ function CommunityDetail({ go, ctx, user }) {
   // лента сообщества — серверный фильтр по community (масштабируемо)
   const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore, loading: feedLoading } = useFeed({ community: ctx.communityId });
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
-  const [allStories, setAllStories] = useState(() => (window.WYRM.STORIES || []).slice());
-  useEffect(() => { let on = true; store.listStories().then(s => { if (on && s && s.length) setAllStories(s); }); return () => { on = false; }; }, []);
+  const [allStories, setAllStories] = useState(() => store.enabled ? [] : (window.WYRM.STORIES || []).slice());
+  useEffect(() => { let on = true; store.listStories().then(s => { if (on && (store.enabled || (s && s.length))) setAllStories(s || []); }); return () => { on = false; }; }, []);
   // без подмены на communities[0]: иначе фильтр ленты (по ctx.communityId) и
   // постинг (по c.id) разойдутся, и юзер запостит не туда
   const c = communities.find(x => x.id === ctx.communityId);
@@ -4052,6 +4185,39 @@ function loadUser() {
   try { return JSON.parse(localStorage.getItem('wyrm.user')) || null; } catch (e) { return null; }
 }
 
+/* ---- правовые страницы (152/149-ФЗ): Политика ПД / Cookies / Соглашение ---- */
+function LegalPage({ doc, go }) {
+  const d = LEGAL[doc];
+  useEffect(() => { window.scrollTo({ top: 0 }); }, [doc]);
+  if (!d) return null;
+  return (
+    <div className="view wrap" style={{ maxWidth: 760, margin: '0 auto', padding: 'clamp(32px,6vh,72px) 0 90px' }}>
+      <div className="eyebrow" style={{ marginBottom: 12 }}>Правовая информация</div>
+      <h1 className="display" style={{ fontSize: 'clamp(1.9rem,4.6vw,3rem)', marginBottom: 24, lineHeight: 1.05 }}>{d.title}</h1>
+      <div className="legal-body" dangerouslySetInnerHTML={{ __html: d.html }} />
+      <div style={{ marginTop: 44, paddingTop: 22, borderTop: 'var(--rule-style)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {Object.entries(LEGAL).filter(([k]) => k !== doc).map(([k, v]) => (
+          <button key={k} className="btn btn-ghost btn-sm" onClick={() => go(k)}>{v.title}</button>
+        ))}
+        <button className="btn btn-ghost btn-sm" onClick={() => go('home')}>На главную</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---- баннер согласия на cookie (152-ФЗ) ---- */
+function CookieBanner({ go }) {
+  const [show, setShow] = useState(() => { try { return !localStorage.getItem('gal.cookieOk'); } catch (_) { return false; } });
+  if (!show) return null;
+  const accept = () => { try { localStorage.setItem('gal.cookieOk', '1'); } catch (_) {} setShow(false); };
+  return (
+    <div className="cookie-banner" role="dialog" aria-label="Согласие на cookie">
+      <span className="mono cookie-text">Мы используем технические cookie для входа и настроек. Продолжая, вы принимаете <button className="cookie-link" onClick={() => go('cookies')}>Политику cookie</button>.</span>
+      <button className="btn btn-primary btn-sm" onClick={accept}>Принять</button>
+    </div>
+  );
+}
+
 function App() {
   const [route, setRoute] = useState('landing');
   const [ctx, setCtx] = useState({});
@@ -4188,13 +4354,14 @@ function App() {
                   <div className="mobile-menu-label">@{user.handle}</div>
                   <button className="mobile-link" onClick={() => { go('profile'); setMenuOpen(false); }}><Icon name="users" size={15} />Профиль</button>
                   <button className="mobile-link" onClick={async () => { await store.signOut(); setUser(null); setMenuOpen(false); }}><Icon name="arrowL" size={15} />Выйти</button>
+                  <button className="mobile-link mobile-link-danger" onClick={async () => { if (!window.confirm('Удалить аккаунт и все связанные данные без возможности восстановления?')) return; try { await store.deleteUser(); } catch (e) { wyrmErr(e, 'Не удалось удалить аккаунт.'); } setUser(null); setMenuOpen(false); go('landing'); }}><Icon name="x" size={15} />Удалить аккаунт</button>
                 </React.Fragment>
               : <button className="btn btn-primary" style={{ margin: '12px 0 4px', justifyContent: 'center' }} onClick={() => { openAuth('login'); setMenuOpen(false); }}>Войти</button>}
           </div>
         </div>
       )}
 
-      <AuthModal open={authOpen} mode={authMode} setMode={setAuthMode} onClose={() => setAuthOpen(false)} onAuth={doAuth} />
+      <AuthModal open={authOpen} mode={authMode} setMode={setAuthMode} onClose={() => setAuthOpen(false)} onAuth={doAuth} go={go} />
 
       <PluginHost state={plugins} customs={customs} go={go} />
 
@@ -4214,15 +4381,28 @@ function App() {
         {route === 'communities' && <Social go={go} user={user} initial="communities" />}
         {route === 'community' && <CommunityDetail go={go} ctx={ctx} user={user} />}
         {route === 'profile' && <Profile go={go} user={user} />}
+        {route === 'donate' && <DonatePage go={go} />}
+        {LEGAL[route] && <LegalPage doc={route} go={go} />}
       </main>
 
       {route !== 'landing' && !studioRoute && (
-      <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18, position: 'relative', zIndex: 1 }}>
-        <div className="brand"><span className="logo" style={{ fontSize: '1.2rem' }}><span className="w">G</span>alathilion</span></div>
-        <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', maxWidth: '36ch' }}>Площадка коллективного повествования. Каждая история живёт, пока её пишут.</p>
-        <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{theme === 'inverted' ? 'мир · Инверсия' : 'мир · Бумага'}</div>
+      <footer className="wrap" style={{ borderTop: 'var(--rule-style)', padding: '40px 0 56px', position: 'relative', zIndex: 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18 }}>
+          <div className="brand"><span className="logo" style={{ fontSize: '1.2rem' }}><span className="w">G</span>alathilion</span></div>
+          <p className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', maxWidth: '36ch' }}>Площадка коллективного повествования. Каждая история живёт, пока её пишут.</p>
+          <div className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>{theme === 'inverted' ? 'мир · Инверсия' : 'мир · Бумага'}</div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginTop: 20, paddingTop: 18, borderTop: 'var(--rule-style)' }}>
+          <button className="mono footer-link" onClick={() => go('donate')} style={{ color: 'var(--ink)' }}>♥ Поддержать</button>
+          {Object.entries(LEGAL).map(([k, v]) => (
+            <button key={k} className="mono footer-link" onClick={() => go(k)}>{v.title}</button>
+          ))}
+          <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)' }}>18+</span>
+          <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', marginLeft: 'auto' }}>© Galathilion</span>
+        </div>
       </footer>
       )}
+      <CookieBanner go={go} />
 
       <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)}
         {...{ theme, setTheme, accent, setAccent, font, setFont, scale, setScale, atmos, setAtmos }}

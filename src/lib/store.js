@@ -170,6 +170,89 @@ export async function signOut() {
   localStorage.removeItem('wyrm.user');
 }
 
+// Право на забвение (152-ФЗ): удаляет аккаунт и связанный контент пользователя.
+export async function deleteUser() {
+  if (!enabled) {
+    ['wyrm.user', 'wyrm.nodes', 'wyrm.cuts', 'wyrm.draft', 'wyrm.draftNotes', 'wyrm.posts', 'wyrm.communities'].forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
+    return;
+  }
+  const pb = await pbClient();
+  const me = authRecord(pb);
+  if (!me) throw new Error('Нужно войти');
+  const id = me.id;
+  // best-effort: чистим принадлежащие пользователю строки, затем сам аккаунт
+  const wipe = async (col, filter) => {
+    try {
+      const rows = await pb.collection(col).getFullList({ filter: pb.filter(filter, { u: id }), fields: 'id' });
+      await Promise.all(rows.map(r => pb.collection(col).delete(r.id).catch(() => {})));
+    } catch (_) {}
+  };
+  await wipe('votes', 'user={:u}');
+  await wipe('likes', 'user={:u}');
+  await wipe('memberships', 'user={:u}');
+  await wipe('notifications', 'user={:u}');
+  await wipe('follows', 'follower={:u}');
+  await wipe('workspace_presets', 'user={:u}');
+  await wipe('reader_cuts', 'owner={:u}');
+  await wipe('comments', 'author={:u}');
+  await wipe('posts', 'author={:u}');
+  await wipe('nodes', 'author={:u}');
+  await wipe('stories', 'author={:u}');
+  await pb.collection('users').delete(id);   // требует users.deleteRule = @request.auth.id = id
+  pb.authStore.clear();
+  try { localStorage.removeItem('wyrm.user'); } catch (_) {}
+}
+
+/* ============================================================
+   DRAFTS — мультичерновики (Верстак 2.0). PB-коллекция drafts,
+   в демо — localStorage-массив wyrm.drafts. Автосейв не теряет работу.
+   ============================================================ */
+const mapDraft = (d) => ({
+  id: d.id, kind: d.kind || 'newbook', story: d.story || '', parent: d.parent || '',
+  title: d.title || '', synopsis: d.synopsis || '', html: d.html || '', notes: d.notes || '',
+  tags: d.tags || [], chars: d.chars || {}, words: d.words || 0,
+  ts: Date.parse(d.updated || d.created) || Date.now(),
+});
+export async function listDrafts(story) {
+  if (!enabled) {
+    const all = load('wyrm.drafts', []);
+    return (story ? all.filter(x => x.story === story) : all).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  }
+  const pb = await pbClient(); const me = authRecord(pb); if (!me) return [];
+  const filter = story
+    ? pb.filter('author = {:a} && story = {:s}', { a: me.id, s: story })
+    : pb.filter('author = {:a}', { a: me.id });
+  try { const r = await pb.collection('drafts').getFullList({ filter, sort: '-updated' }); return r.map(mapDraft); }
+  catch (e) { return []; }
+}
+export async function saveDraft(id, data) {
+  const payload = {
+    kind: data.kind || 'newbook', story: data.story || '', parent: data.parent || '',
+    title: data.title || '', synopsis: data.synopsis || '', html: data.html || '', notes: data.notes || '',
+    tags: data.tags || [], chars: data.chars || {}, words: data.words || 0,
+  };
+  if (!enabled) {
+    const all = load('wyrm.drafts', []);
+    const did = id || uid('d');
+    const row = { id: did, ...payload, ts: Date.now() };
+    save('wyrm.drafts', [row, ...all.filter(x => x.id !== did)]);
+    return row;
+  }
+  const pb = await pbClient(); const me = authRecord(pb); if (!me) return null;
+  try {
+    const rec = id
+      ? await pb.collection('drafts').update(id, payload)
+      : await pb.collection('drafts').create({ author: me.id, ...payload });
+    return mapDraft(rec);
+  } catch (e) { return null; }
+}
+export async function deleteDraft(id) {
+  if (!id) return;
+  if (!enabled) { save('wyrm.drafts', load('wyrm.drafts', []).filter(x => x.id !== id)); return; }
+  const pb = await pbClient();
+  try { await pb.collection('drafts').delete(id); } catch (e) {}
+}
+
 /* ============================================================
    FEED — посты, лайки, репосты, комментарии
    ============================================================ */
