@@ -356,14 +356,24 @@ a{ color:inherit; text-decoration:none; }
 button{ font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
 img{ display:block; max-width:100%; }
 
-/* ---------- перо: кастомный курсор по всей платформе ---------- */
-/* нибы пера; hotspot в кончике пера (4,4) */
-*{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M4 4 L4 12 L12 4 Z' fill='%2314110f'/%3E%3Cpath d='M4.5 4.5 L8 8' stroke='%23ffffff' stroke-width='.7'/%3E%3Cpath d='M9.5 9.5 L20 20' stroke='%2314110f' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") 4 4, auto; }
+/* ---------- курсор письма: перо по всей платформе + пикер (data-cursor) ---------- */
+/* дефолт — настоящее перо (перо+нибъ, hotspot в кончике 3 20). Пикер меняет :root[data-cursor]. */
+*{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M22 2 C15 4 8 11 4 20' fill='none' stroke='%2314110f' stroke-width='1.7' stroke-linecap='round'/%3E%3Cpath d='M19.5 4.2 C15 6 11 10 8 15' fill='none' stroke='%2314110f' stroke-width='.7'/%3E%3Cpath d='M4 20 l4.2 -1.3 l-2.6 -2.6 Z' fill='%2314110f'/%3E%3C/svg%3E") 3 20, auto; }
 a, button, [role="button"], summary, label, select, .gate-word, .gate-corner, .tnode, .story-card, .tag-btn, .nav-link, .info-dot, .swatch-tile, .mobile-link{
-  cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M4 4 L4 12 L12 4 Z' fill='%2314110f'/%3E%3Cpath d='M4.5 4.5 L8 8' stroke='%23ffffff' stroke-width='.7'/%3E%3Cpath d='M9.5 9.5 L20 20' stroke='%2314110f' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='20.5' cy='20.5' r='2' fill='%2314110f'/%3E%3C/svg%3E") 4 4, pointer !important;
+  cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M22 2 C15 4 8 11 4 20' fill='none' stroke='%2314110f' stroke-width='1.7' stroke-linecap='round'/%3E%3Cpath d='M19.5 4.2 C15 6 11 10 8 15' fill='none' stroke='%2314110f' stroke-width='.7'/%3E%3Cpath d='M4 20 l4.2 -1.3 l-2.6 -2.6 Z' fill='%2314110f'/%3E%3Ccircle cx='6' cy='18' r='1.4' fill='%2314110f'/%3E%3C/svg%3E") 3 20, pointer !important;
 }
 input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"]{ cursor:text !important; }
-[data-theme="inverted"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M4 4 L4 12 L12 4 Z' fill='%23e8e8e8'/%3E%3Cpath d='M9.5 9.5 L20 20' stroke='%23e8e8e8' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") 4 4, auto; }
+[data-theme="inverted"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M22 2 C15 4 8 11 4 20' fill='none' stroke='%23e8e8e8' stroke-width='1.7' stroke-linecap='round'/%3E%3Cpath d='M4 20 l4.2 -1.3 l-2.6 -2.6 Z' fill='%23e8e8e8'/%3E%3C/svg%3E") 3 20, auto; }
+
+/* реестр курсоров (Galathilion/Расширения → пикер выставляет data-cursor на :root) */
+:root[data-cursor="system"] *{ cursor:auto !important; }
+:root[data-cursor="system"] a, :root[data-cursor="system"] button, :root[data-cursor="system"] [role="button"], :root[data-cursor="system"] select, :root[data-cursor="system"] label, :root[data-cursor="system"] .story-card, :root[data-cursor="system"] .tag-btn, :root[data-cursor="system"] .nav-link, :root[data-cursor="system"] .gate-corner, :root[data-cursor="system"] .mobile-link{ cursor:pointer !important; }
+:root[data-cursor="nib"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M8 2 L16 2 L12 22 Z' fill='%2314110f'/%3E%3Cline x1='12' y1='8' x2='12' y2='19' stroke='%23faf9f5' stroke-width='.9'/%3E%3Ccircle cx='12' cy='9.5' r='1.5' fill='%23faf9f5'/%3E%3C/svg%3E") 12 22, auto !important; }
+:root[data-cursor="brush"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M21 3 L10 14' stroke='%2314110f' stroke-width='2.6' stroke-linecap='round'/%3E%3Cpath d='M10 13 C7 16 6 18 3.5 20.5 C6.5 19 8 18 9.5 15.5 Z' fill='%2314110f'/%3E%3C/svg%3E") 4 20, auto !important; }
+:root[data-cursor="ink"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M12 3 C16 10 17.5 13 17.5 15.5 A5.5 5.5 0 0 1 6.5 15.5 C6.5 13 8 10 12 3 Z' fill='%2314110f'/%3E%3C/svg%3E") 12 4, auto !important; }
+:root[data-cursor="star"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M12 2 L13.4 10.6 L22 12 L13.4 13.4 L12 22 L10.6 13.4 L2 12 L10.6 10.6 Z' fill='%2314110f'/%3E%3C/svg%3E") 12 12, auto !important; }
+:root[data-cursor="crosshair"] *{ cursor:crosshair !important; }
+:root[data-cursor="classic"] *{ cursor:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24'%3E%3Cpath d='M4 4 L4 12 L12 4 Z' fill='%2314110f'/%3E%3Cpath d='M9.5 9.5 L20 20' stroke='%2314110f' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") 4 4, auto !important; }
 
 /* ---------- typography helpers ---------- */
 .display{ font-family:var(--display); font-weight:400; line-height:.9; letter-spacing:-0.0208em; text-wrap:balance; }
@@ -553,6 +563,9 @@ input:not([type="range"]):not([type="checkbox"]):not([type="radio"]), textarea, 
 .story-card:hover .cover-inner{ transform:scale(1.045); }
 .story-card:hover .cover-frame{ opacity:.55 !important; }
 .story-card:hover .cover{ border-color:var(--ink-3); }
+/* подписи к счётчикам постов (чтобы иконки читались без наведения) */
+.pc-lbl{ font-size:.82em; letter-spacing:.01em; }
+@media (max-width:460px){ .pc-lbl{ display:none; } }
 .feature-cell{ transition:background .3s var(--ease); }
 .feature-cell:hover{ background:var(--bg-2) !important; }
 .fork-mini{ transition:.2s var(--ease); }
@@ -986,6 +999,14 @@ body::after{ content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   90%{ opacity:.6; }
   100%{ transform:translateY(118vh) translateX(var(--drift,24px)) rotate(var(--spin,400deg)); opacity:0; }
 }
+/* изнанка: 12:00–00:00 листья поднимаются (data-phase="rise" ставит GateLeaves) */
+@keyframes leaf-rise{
+  0%{ transform:translateY(118vh) translateX(0) rotate(0deg); opacity:0; }
+  8%{ opacity:.6; }
+  90%{ opacity:.6; }
+  100%{ transform:translateY(-12vh) translateX(var(--drift,24px)) rotate(var(--spin,400deg)); opacity:0; }
+}
+.gate-leaves[data-phase="rise"] .leaf{ animation-name:leaf-rise; }
 
 /* registration / crosshair marks — on the centerline, slow rotate + parallax */
 .gate-reg{

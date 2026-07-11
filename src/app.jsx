@@ -905,8 +905,11 @@ const GATE_LEAVES = Array.from({ length: 18 }, (_, i) => ({
   spin: 360 + (i % 3) * 180,
 }));
 function GateLeaves() {
+  // изнанка по локальному времени: 00:00–12:00 падают, 12:00–00:00 поднимаются
+  const [rising, setRising] = useState(() => new Date().getHours() >= 12);
+  useEffect(() => { const id = setInterval(() => setRising(new Date().getHours() >= 12), 60000); return () => clearInterval(id); }, []);
   return (
-    <div className="gate-leaves" aria-hidden="true">
+    <div className="gate-leaves" data-phase={rising ? 'rise' : 'fall'} aria-hidden="true">
       {GATE_LEAVES.map(l => (
         <span key={l.i} className="leaf" style={{
           left: l.left + '%', width: l.size, height: l.size,
@@ -2952,7 +2955,12 @@ const PLUGIN_SLOTS = [
 ];
 const PLUGIN_COLORS = ['var(--ink)', 'var(--ink)', 'var(--ink)', 'var(--ink)'];
 
-function PluginsScreen({ state, toggle, customs, addCustom, go }) {
+const CURSORS = [
+  { id: 'quill', label: 'Перо' }, { id: 'nib', label: 'Нибъ' }, { id: 'brush', label: 'Кисть' },
+  { id: 'ink', label: 'Капля' }, { id: 'star', label: 'Искра' }, { id: 'crosshair', label: 'Прицел' },
+  { id: 'classic', label: 'Классика' }, { id: 'system', label: 'Системный' },
+];
+function PluginsScreen({ state, toggle, customs, addCustom, go, cursorId, setCursorId }) {
   const ref = useReveal();
   const [tab, setTab] = useState('store');
   const [cat, setCat] = useState(null);
@@ -2984,6 +2992,14 @@ function PluginsScreen({ state, toggle, customs, addCustom, go }) {
             Сообщество расширяет Galathilion как хочет — атмосфера, инструменты письма, геймификация. Включай по желанию или собери своё.
           </p>
         </div>
+      </div>
+
+      {/* пикер курсора письма — курсор меняется вживую при выборе */}
+      <div className="reveal" style={{ borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '14px 0', marginBottom: 22, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span className="mono" style={{ fontSize: '.56rem', color: 'var(--ink-3)', letterSpacing: '.14em', marginRight: 4 }}>КУРСОР ПИСЬМА</span>
+        {CURSORS.map(c => (
+          <button key={c.id} className="swatch-tile" data-active={cursorId === c.id} onClick={() => setCursorId(c.id)} title={c.label} style={{ padding: '6px 12px', fontSize: '.72rem', flex: '0 0 auto' }}>{c.label}</button>
+        ))}
       </div>
 
       {/* tabs */}
@@ -3595,16 +3611,16 @@ function PostCard({ post, user, onReact, onRepost, onDelete, go, communityName, 
 
       <div style={{ display: 'flex', gap: 6, borderTop: 'var(--rule-style)', paddingTop: 12, flexWrap: 'wrap' }}>
         <button className="tag tag-btn" data-active={post.likedByMe} onClick={() => onReact(post.id, 'like')} title="Нравится">
-          <Icon name="flame" size={12} />{post.likeCount}
+          <Icon name="flame" size={12} /><span className="pc-lbl">нравится</span> {post.likeCount}
         </button>
         <button className="tag tag-btn" data-active={openC} onClick={toggleComments} title="Комментарии">
-          <Icon name="users" size={12} />{cCount}
+          <Icon name="users" size={12} /><span className="pc-lbl">ответы</span> {cCount}
         </button>
         <button className="tag tag-btn" data-active={reposted} onClick={doRepost} title="Репост">
-          <Icon name="fork" size={12} />{post.repostCount + (reposted ? 1 : 0)}
+          <Icon name="fork" size={12} /><span className="pc-lbl">репост</span> {post.repostCount + (reposted ? 1 : 0)}
         </button>
         <button className="tag tag-btn" data-active={post.savedByMe} onClick={() => onReact(post.id, 'save')} title="В закладки" style={{ marginLeft: 'auto' }}>
-          <Icon name="star" size={12} />{post.saveCount}
+          <Icon name="star" size={12} /><span className="pc-lbl">сохранить</span> {post.saveCount}
         </button>
       </div>
 
@@ -3731,24 +3747,24 @@ function Feed({ go, user, embedded }) {
   const { posts, addPost, repostPost, toggleReact, removePost, hasMore, loadMore, loadingMore, loading } = useFeed(feedFilter);
   const onFollow = async (h) => { const r = await store.toggleFollow(h); setFollowing(f => r ? [...new Set([...f, h])] : f.filter(x => x !== h)); };
   const doRepost = (post) => repostPost(post, user && (user.handle || user.name));
-  const kinds = [['all', 'Всё'], ['following', 'Подписки'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Споры'], ['post', 'Записи']];
+  const kinds = [['all', 'Всё'], ['following', 'Подписки'], ['branch', 'Ветви'], ['vote', 'Голоса'], ['discuss', 'Обсуждения'], ['post', 'Записи']];
 
   return (
     <div className="view wrap" ref={ref} style={{ padding: embedded ? '6px 0 100px' : 'clamp(34px,6vh,64px) 0 100px', maxWidth: 'min(100% - 48px, 760px)' }}>
       {!embedded && (
         <div className="reveal" style={{ marginBottom: 26 }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество</div>
           <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Лента</h1>
         </div>
       )}
 
       <FeedComposer user={user} onPost={addPost} go={go} />
 
-      {!loading && posts.length > 0 && <FeedTicker posts={posts} />}
-
-      <div className="reveal" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '12px 0', marginBottom: 26 }}>
+      {/* строка фильтров (не вкладки): чип-стиль + подпись «фильтр», чтобы не путать с секцией Лента|Сообщества */}
+      <div className="reveal" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '12px 0', marginBottom: 26 }}>
+        <span className="mono" style={{ fontSize: '.54rem', color: 'var(--ink-3)', letterSpacing: '.12em', marginRight: 2 }}>ФИЛЬТР</span>
         {kinds.map(([k, l]) => (
-          <button key={k} className="nav-link" data-active={filter === k} onClick={() => setFilter(k)} style={{ fontSize: '.84rem' }}>{l}</button>
+          <button key={k} className="tag tag-btn" data-active={filter === k} onClick={() => setFilter(k)} style={{ fontSize: '.7rem' }}>{l}</button>
         ))}
       </div>
 
@@ -4156,8 +4172,8 @@ function Social({ go, user, initial }) {
     <div className="view" ref={ref}>
       <div className="wrap" style={{ padding: 'clamp(34px,6vh,64px) 0 0' }}>
         <div className="reveal" style={{ marginBottom: 18 }}>
-          <div className="eyebrow" style={{ marginBottom: 14 }}>Что пишет сообщество прямо сейчас</div>
-          <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>Сообщество</h1>
+          <div className="eyebrow" style={{ marginBottom: 14 }}>{tab === 'communities' ? 'Кружки по интересам' : 'Что пишет сообщество'}</div>
+          <h1 className="display" style={{ fontSize: 'clamp(2.4rem,6vw,4.4rem)' }}>{tab === 'communities' ? 'Сообщества' : 'Лента'}</h1>
         </div>
         <div className="reveal" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', borderTop: 'var(--rule-style)', borderBottom: 'var(--rule-style)', padding: '12px 0' }}>
           {[['feed', 'Лента'], ['communities', 'Сообщества']].map(([k, l]) => (
@@ -4244,6 +4260,7 @@ function App() {
   const [atmos, setAtmos] = useState(saved.atmos !== false);
   const [plugins, setPlugins] = useState(saved.plugins || { embers: true, progress: true, wordhud: false, dice: false, zen: false });
   const [customs, setCustoms] = useState(saved.customs || []);
+  const [cursorId, setCursorId] = useState(saved.cursor || 'quill');
   const togglePlugin = (id) => setPlugins(p => ({ ...p, [id]: !p[id] }));
   const addCustom = (mf) => { setCustoms(c => [...c, mf]); setPlugins(p => ({ ...p, [mf.id]: true })); };
 
@@ -4270,8 +4287,9 @@ function App() {
     r.style.removeProperty('--gold');
     r.style.removeProperty('--display');
     r.style.fontSize = (16 * scale / 100) + 'px';
-    localStorage.setItem('wyrm.cfg', JSON.stringify({ theme, accent, font, scale, atmos, plugins, customs }));
-  }, [theme, accent, font, scale, atmos, plugins, customs]);
+    document.documentElement.setAttribute('data-cursor', cursorId);
+    localStorage.setItem('wyrm.cfg', JSON.stringify({ theme, accent, font, scale, atmos, plugins, customs, cursor: cursorId }));
+  }, [theme, accent, font, scale, atmos, plugins, customs, cursorId]);
 
   const ROUTE_LABEL = { home: 'Главная', catalog: 'Каталог', reader: 'Древо', compose: 'Писать', merge: 'Слияние', lore: 'Кодекс мира', stakes: 'Канон-ставки', room: 'Комната авторов', cut: 'Сборка читателя', plugins: 'Расширения', feed: 'Лента', communities: 'Сообщества', community: 'Сообщество', profile: 'Профиль' };
   // Маршруты, требующие входа: гостя не кидаем на мёртвый экран — открываем форму.
@@ -4396,7 +4414,7 @@ function App() {
         {route === 'stakes' && <Stakes go={go} />}
         {route === 'room' && <WritersRoom go={go} />}
         {route === 'cut' && <ReadersCut go={go} />}
-        {route === 'plugins' && <PluginsScreen state={plugins} toggle={togglePlugin} customs={customs} addCustom={addCustom} go={go} />}
+        {route === 'plugins' && <PluginsScreen state={plugins} toggle={togglePlugin} customs={customs} addCustom={addCustom} go={go} cursorId={cursorId} setCursorId={setCursorId} />}
         {route === 'feed' && <Social go={go} user={user} initial="feed" />}
         {route === 'communities' && <Social go={go} user={user} initial="communities" />}
         {route === 'community' && <CommunityDetail go={go} ctx={ctx} user={user} />}
