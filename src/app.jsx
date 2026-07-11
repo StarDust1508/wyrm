@@ -1120,7 +1120,7 @@ function useStoryNodes(storyId) {
 
 /* Режим Чтения: книжная колонка с комфортной типографикой, ясным каноном
    и понятным выбором на каждой развилке (канон vs ветви «а что, если…»). */
-function ReadingColumn({ nodes, byId, curId, setSel, vote, myVotes, goFork, fontScale, setFontScale }) {
+function ReadingColumn({ nodes, byId, curId, setSel, vote, myVotes, goFork, fontScale, setFontScale, go, setCtx, story, reload }) {
   // настройки чтения (сохраняются) — объявлены ДО любых ранних return (правила хуков)
   const [rTheme, setRTheme] = useState(() => wyrmLoad('wyrm.readTheme', 'paper'));
   const [rWidth, setRWidth] = useState(() => wyrmLoad('wyrm.readWidth', 'normal'));
@@ -1150,6 +1150,21 @@ function ReadingColumn({ nodes, byId, curId, setSel, vote, myVotes, goFork, font
   const READ_W = { narrow: '34rem', normal: '40rem', wide: '46rem' };
   const themed = rTheme !== 'paper';
   const bodyFont = rSerif ? "'Georgia','Times New Roman',serif" : 'var(--serif)';
+  // P5 — права автора над своей главой: правка / удаление / «сделать свободной» / скрыть
+  const me = wyrmLoad('wyrm.user', null);
+  const myH = me && (me.handle || me.name);
+  const canManageNode = (n) => (me && me.role === 'moderator') || (myH && n.author === myH && n.status !== 'abandoned');
+  const startEdit = (n) => { setCtx && setCtx(c => ({ ...c, editNode: n.id, story: story ? story.id : c.story })); go && go('compose'); };
+  const authorRetire = async (n) => {
+    const kids = await store.countChildren(story ? story.id : n.story, n.id);
+    if (kids === 0) {
+      if (window.confirm('Удалить эту главу навсегда? На неё никто не ответвлялся.')) { const r = await store.deleteNode(n.id, story ? story.id : n.story); if (r && r.ok) { setSel(n.parent || null); reload && reload(); } }
+      return;
+    }
+    const choice = (window.prompt('На этой главе выросли чужие ветви — удалить нельзя.\nВведи «свободна» — открепить своё авторство (текст останется общим),\nлибо «скрыть» — спрятать свой текст (ветви других сохранятся).', '') || '').trim().toLowerCase();
+    if (choice.startsWith('свобод')) { if (window.confirm('Открепить авторство навсегда? Отменить сможет только модератор.')) { await store.abandonNode(n.id); reload && reload(); } }
+    else if (choice.startsWith('скры')) { const note = window.prompt('Пометка для читателей (необязательно):', '') || ''; await store.tombstoneNode(n.id, note); reload && reload(); }
+  };
 
   return (
     <div style={{ position: 'relative', ...READ_THEMES[rTheme],
@@ -1210,12 +1225,14 @@ function ReadingColumn({ nodes, byId, curId, setSel, vote, myVotes, goFork, font
               <h2 className="display" style={{ fontSize: '2.1em', lineHeight: 1.05, marginBottom: 14 }}>{n.title}</h2>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
                 <Avatar name={n.author} size={26} />
-                <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)' }}>@{n.author} · {n.words || 0} слов</span>
+                <span className="mono" style={{ fontSize: '.6rem', color: 'var(--ink-3)' }}>{n.status === 'abandoned' ? 'текст-достояние' : '@' + n.author} · {n.words || 0} слов</span>
               </div>
 
-              {n.html
-                ? <div className="serif rich-read" style={{ fontFamily: bodyFont, fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }} dangerouslySetInnerHTML={{ __html: cleanHtml(n.html) }} />
-                : <p className="serif" style={{ fontFamily: bodyFont, fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }}>{n.excerpt}</p>}
+              {n.status === 'tombstoned'
+                ? <p className="serif-italic" style={{ color: 'var(--ink-3)', padding: '10px 0', borderLeft: '2px solid var(--line)', paddingLeft: 16 }}>Глава удалена автором.{n.note ? ' ' + n.note : ''} Ветви, выросшие из неё, сохранены.</p>
+                : n.html
+                  ? <div className="serif rich-read" style={{ fontFamily: bodyFont, fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }} dangerouslySetInnerHTML={{ __html: cleanHtml(n.html) }} />
+                  : <p className="serif" style={{ fontFamily: bodyFont, fontSize: '1.12em', lineHeight: 1.85, color: 'var(--ink)' }}>{n.excerpt}</p>}
 
               {n.tags && n.tags.length > 0 && <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '18px 0' }}>{n.tags.map(t => <Tag key={t} id={t} />)}</div>}
 
@@ -1224,6 +1241,15 @@ function ReadingColumn({ nodes, byId, curId, setSel, vote, myVotes, goFork, font
                   <Icon name={myVotes[n.id] ? 'check' : 'star'} size={13} />{myVotes[n.id] ? 'Голос учтён' : 'За канон'}
                 </button>
                 <button className="btn btn-ghost btn-sm" onClick={() => goFork(n.id)}><Icon name="fork" size={13} />А что, если…</button>
+                {canManageNode(n) && n.status !== 'tombstoned' && (
+                  <React.Fragment>
+                    <button className="btn btn-ghost btn-sm" onClick={() => startEdit(n)} title="Редактировать свою главу"><Icon name="quill" size={13} />Редактировать</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => authorRetire(n)} title="Удалить · сделать свободной · скрыть" style={{ color: 'var(--ink-3)', fontWeight: 700 }}>⋯</button>
+                  </React.Fragment>
+                )}
+                {canManageNode(n) && n.status === 'tombstoned' && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => store.reviveNode(n.id).then(() => reload && reload())}>Вернуть главу</button>
+                )}
               </div>
 
               {nAlts.length > 0 && (
@@ -1267,7 +1293,7 @@ function Reader({ go, ctx, setCtx }) {
   const [STORIES, setStories] = useState(() => store.enabled ? [] : (window.WYRM.STORIES || []).slice());
   useEffect(() => { let on = true; store.listStories().then(s => { if (on && (store.enabled || (s && s.length))) setStories(s || []); }); return () => { on = false; }; }, []);
   const story = STORIES.find(s => s.id === ctx.story) || (store.enabled ? { id: ctx.story, title: ctx.storyTitle || 'История', author: ctx.storyAuthor || '', author_handle: ctx.storyAuthor || '' } : FLAGSHIP);
-  const { nodes: NODES, vote, myVotes, loading } = useStoryNodes(story.id);
+  const { nodes: NODES, vote, myVotes, loading, reload } = useStoryNodes(story.id);
   const [sel, setSel] = useState(ctx.node || null);
   const [orient, setOrient] = useState('vertical');
   const [filter, setFilter] = useState(null);
@@ -1348,7 +1374,7 @@ function Reader({ go, ctx, setCtx }) {
         })}
       </div>
 
-      {readMode && <ReadingColumn nodes={NODES} byId={byId} curId={curId} setSel={setSel} vote={vote} myVotes={myVotes} goFork={goFork} fontScale={fontScale} setFontScale={setFontScale} />}
+      {readMode && <ReadingColumn nodes={NODES} byId={byId} curId={curId} setSel={setSel} vote={vote} myVotes={myVotes} goFork={goFork} fontScale={fontScale} setFontScale={setFontScale} go={go} setCtx={setCtx} story={story} reload={reload} />}
 
       {!readMode && (<React.Fragment>
       {/* toolbar */}
@@ -1472,6 +1498,8 @@ const DESK_PRESETS = [
 function Compose({ go, ctx, setCtx }) {
   const { CHARACTERS, TAGS } = window.WYRM;
   const storyId = ctx.story || 'ashes';
+  const editId = ctx.editNode || null;   // P5: режим правки существующей главы
+  const editedRef = useRef(false);
   // узлы читаем через store (PB в бою, иначе сид/localStorage), а не из
   // window.WYRM напрямую — в PB-режиме родитель развилки и навигатор глав
   // должны приходить из БД. Стартуем с сида, чтобы первый рендер был не пустым.
@@ -1516,7 +1544,15 @@ function Compose({ go, ctx, setCtx }) {
   const saveNotes = (v) => { setNotes(v); wyrmSave('wyrm.draftNotes', v); };
   const goalPct = desk.goal ? Math.min(100, Math.round(words / desk.goal * 100)) : 0;
   // автосейв черновика главы (тело больше не теряется при перезагрузке — T4)
-  useEffect(() => { wyrmSave('wyrm.draft', { title, body, synopsis }); }, [title, body, synopsis]);
+  useEffect(() => { if (editId) return; wyrmSave('wyrm.draft', { title, body, synopsis }); }, [title, body, synopsis, editId]);
+  // P5: префилл при правке своей главы (один раз, когда узел подгрузился из БД)
+  useEffect(() => {
+    if (!editId || editedRef.current) return;
+    const en = byId[editId]; if (!en) return;
+    editedRef.current = true;
+    setTitle(en.title || ''); setBody(en.html || en.excerpt || ''); setSynopsis(en.synopsis || '');
+    setTags((en.tags || []).slice(0, 4)); setChars({ ...(en.chars || {}) }); setMode('fork');
+  }, [editId, NODES.length]);
   // ---- Верстак 2.0: мультичерновики в БД (автосейв + восстановление, без затирания) ----
   const [draftId, setDraftId] = useState(null);
   const [myDrafts, setMyDrafts] = useState([]);
@@ -1590,6 +1626,14 @@ function Compose({ go, ctx, setCtx }) {
     const text = htmlToText(body);
     if (!text) return;
     const me = wyrmLoad('wyrm.user', null);
+    if (editId) {
+      // правка своей главы: store.updateNode делает append-only снимок перед записью
+      try {
+        await store.updateNode(editId, { title: title.trim() || 'Безымянная глава', html: cleanHtml(body), excerpt: text.length > 320 ? text.slice(0, 317) + '…' : text, words, tags, chars: { ...chars } });
+        clearDraft(); go('reader', { story: storyId, node: editId });
+      } catch (e) { wyrmErr(e, 'Не удалось сохранить правки.'); }
+      return;
+    }
     const node = {
       id: parent.id + 'x' + Date.now().toString(36).slice(-4),
       parent: parent.id,

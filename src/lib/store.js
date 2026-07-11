@@ -497,11 +497,13 @@ const mapStory = (s) => ({
   // PB хранит обложку как имя файла → собираем публичный URL; демо хранит data-URL.
   cover: s.cover ? (enabled ? `${PB_URL}/api/files/stories/${s.id}/${s.cover}` : s.cover) : null,
   contributors: s.contributors || 1, branches: s.branches || 1, hot: !!s.hot,
+  status: s.status || 'live',
 });
 const mapNode = (n) => ({
   id: n.id, story: n.story, parent: n.parent || null, title: n.title, author: n.author_handle || n.author,
   canon: !!n.canon, score: n.score || 0, votes: n.votes || 0, words: n.words || 0,
   tags: n.tags || [], excerpt: n.excerpt || '', html: n.html || '', chars: n.chars || {},
+  status: n.status || 'live', note: n.note || '',
 });
 
 /* ---- голоса и ставки (демо хранит в браузере) ---- */
@@ -640,6 +642,92 @@ export async function voteNode(nodeId) {
   v[nodeId] = !v[nodeId];
   save('wyrm.votes', v);
   return !!v[nodeId];
+}
+
+/* ============================================================
+   АВТОРСКИЙ ЖИЗНЕННЫЙ ЦИКЛ (P5): правки с append-only ревизиями,
+   удаление (с защитой чужих веток), «сделать свободной», tombstone.
+   Правила PB уже разрешают автору update/delete своих узлов/историй.
+   ============================================================ */
+export async function countChildren(storyId, nodeId) {
+  if (enabled) {
+    const pb = await pbClient();
+    try { const r = await pb.collection('nodes').getList(1, 1, { filter: pb.filter('parent={:p}', { p: nodeId }) }); return r.totalItems; }
+    catch (e) { return 0; }
+  }
+  return (await listNodes(storyId)).filter(n => n.parent === nodeId).length;
+}
+// append-only снимок главы (git-подобно): текст канона нельзя переписать бесследно
+export async function saveRevision(node) {
+  if (!node) return;
+  if (enabled) {
+    const pb = await pbClient(); const me = authRecord(pb); if (!me) return;
+    try { await pb.collection('revisions').create({ node: node.id, story: node.story || '', author: me.id, title: node.title || '', html: node.html || '', words: node.words || 0, label: 'edit' }); } catch (e) {}
+    return;
+  }
+  const all = load('wyrm.revisions', []); all.push({ id: uid('rev'), node: node.id, title: node.title || '', html: node.html || '', words: node.words || 0, ts: Date.now() }); save('wyrm.revisions', all);
+}
+export async function listRevisions(nodeId) {
+  if (enabled) {
+    const pb = await pbClient();
+    try { const r = await pb.collection('revisions').getFullList({ filter: pb.filter('node={:n}', { n: nodeId }), sort: '-created' }); return r.map(x => ({ id: x.id, title: x.title, html: x.html, words: x.words, ts: Date.parse(x.created) || 0 })); }
+    catch (e) { return []; }
+  }
+  return load('wyrm.revisions', []).filter(r => r.node === nodeId).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+}
+// правка своей главы: СНАЧАЛА снимок в ревизии, затем запись
+export async function updateNode(id, patch, opts) {
+  const snapshot = !opts || opts.snapshot !== false;
+  if (enabled) {
+    const pb = await pbClient();
+    const cur = await pb.collection('nodes').getOne(id).catch(() => null);
+    if (snapshot && cur) await saveRevision(mapNode(cur));
+    const data = {};
+    ['title', 'html', 'excerpt', 'words', 'synopsis', 'status', 'note', 'author', 'author_handle'].forEach(k => { if (patch[k] !== undefined) data[k] = patch[k]; });
+    if (patch.tags !== undefined) data.tags = patch.tags;
+    if (patch.chars !== undefined) data.chars = patch.chars;
+    return mapNode(await pb.collection('nodes').update(id, data));
+  }
+  const nodes = load('wyrm.nodes', []); const i = nodes.findIndex(n => n.id === id);
+  const before = i >= 0 ? nodes[i] : ((WY().NODES || []).find(n => n.id === id) || null);
+  if (snapshot && before) await saveRevision(before);
+  if (i >= 0) { nodes[i] = { ...nodes[i], ...patch }; save('wyrm.nodes', nodes); }
+  const w = WY().NODES; if (w) { const wi = w.findIndex(n => n.id === id); if (wi >= 0) w[wi] = { ...w[wi], ...patch }; }
+  return before ? { ...before, ...patch } : null;
+}
+export async function updateStory(idOrSlug, patch) {
+  if (enabled) {
+    const pb = await pbClient();
+    const st = await pb.collection('stories').getFirstListItem(pb.filter('slug={:s}', { s: idOrSlug })).catch(() => null) || await pb.collection('stories').getOne(idOrSlug).catch(() => null);
+    if (!st) return null;
+    const data = {}; ['title', 'synopsis', 'status'].forEach(k => { if (patch[k] !== undefined) data[k] = patch[k]; });
+    if (patch.tags !== undefined) data.tags = patch.tags;
+    return mapStory(await pb.collection('stories').update(st.id, data));
+  }
+  const arr = load('wyrm.stories', []); const i = arr.findIndex(s => (s.slug || s.id) === idOrSlug);
+  if (i >= 0) { arr[i] = { ...arr[i], ...patch }; save('wyrm.stories', arr); }
+  return i >= 0 ? arr[i] : null;
+}
+// удалить свою главу — ТОЛЬКО если на неё никто не ответвлялся (иначе осиротеют чужие ветки)
+export async function deleteNode(id, storyId) {
+  const kids = await countChildren(storyId, id);
+  if (kids > 0) return { blocked: true, reason: 'has-branches', children: kids };
+  if (enabled) { const pb = await pbClient(); try { await pb.collection('nodes').delete(id); } catch (e) { return { blocked: true, reason: 'error' }; } return { ok: true }; }
+  save('wyrm.nodes', load('wyrm.nodes', []).filter(n => n.id !== id));
+  const w = WY().NODES; if (w) { const wi = w.findIndex(n => n.id === id); if (wi >= 0) w.splice(wi, 1); }
+  return { ok: true };
+}
+// «сделать свободной» — открепить авторство, текст остаётся достоянием дерева (необратимо автором)
+export async function abandonNode(id) {
+  if (enabled) { const pb = await pbClient(); return mapNode(await pb.collection('nodes').update(id, { author: null, author_handle: 'вольный текст', status: 'abandoned' })); }
+  return updateNode(id, { author: 'вольный текст', author_handle: 'вольный текст', status: 'abandoned' }, { snapshot: false });
+}
+// «скрыть» (tombstone) — текст автора прячется, ветви других выживают с пометкой; обратимо автором
+export async function tombstoneNode(id, note) {
+  return updateNode(id, { status: 'tombstoned', note: note || '' }, { snapshot: false });
+}
+export async function reviveNode(id) {
+  return updateNode(id, { status: 'live', note: '' }, { snapshot: false });
 }
 
 /* ============================================================
