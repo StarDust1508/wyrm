@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import * as store from './lib/store.js'
+import * as router from './lib/router.js'
 import * as diff from './lib/diff.js'
 import * as consistency from './lib/consistency.js'
 import * as realtime from './lib/realtime.js'
@@ -1269,6 +1270,7 @@ function Reader({ go, ctx, setCtx }) {
   const [filter, setFilter] = useState(null);
   const [readMode, setReadMode] = useState(ctx.view !== 'map'); // читатель по умолчанию — режим Чтения
   const [fontScale, setFontScale] = useState(() => wyrmLoad('wyrm.readScale', 1));
+  const [shared, setShared] = useState(false);
   // reset selection when the story changes (but not on first mount, so feed deep-links keep their node)
   const prevStory = useRef(story.id);
   useEffect(() => { if (prevStory.current !== story.id) { prevStory.current = story.id; setSel(null); } }, [story.id]);
@@ -1280,6 +1282,13 @@ function Reader({ go, ctx, setCtx }) {
   const node = byId[sel] || byId[defId] || null;
   const curId = node ? node.id : null;
   const castVote = (id) => vote(id);
+  // держим URL в такте с книгой/главой: /book/:slug чисто у корня, /book/:slug/:node на конкретной главе
+  const shareUrl = () => window.location.origin + router.stateToPath('reader', { story: story.id, node: (curId && curId !== rootId ? curId : null) });
+  useEffect(() => {
+    if (!store.enabled || !story.id || !curId) return;
+    try { window.history.replaceState(window.history.state, '', router.stateToPath('reader', { story: story.id, node: (curId === rootId ? null : curId) })); } catch (e) {}
+  }, [curId, story.id, rootId]);
+  const share = () => { try { navigator.clipboard.writeText(shareUrl()); setShared(true); setTimeout(() => setShared(false), 1700); } catch (e) {} };
 
   if (!node) {
     return (
@@ -1309,6 +1318,9 @@ function Reader({ go, ctx, setCtx }) {
             </select>
             <button className="mono path-crumb" onClick={() => go('compose', { newBook: true, forkFrom: null })} style={{ fontSize: '.58rem', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <Icon name="plus" size={12} />новая книга
+            </button>
+            <button className="mono path-crumb" onClick={share} title="Скопировать ссылку на книгу/главу" style={{ fontSize: '.58rem', color: shared ? 'var(--gold)' : 'var(--ink-2)' }}>
+              {shared ? 'ссылка скопирована ✓' : '↗ поделиться'}
             </button>
           </div>
           <div className="eyebrow" style={{ marginBottom: 12 }}>Древо истории · @{story.author}</div>
@@ -4219,8 +4231,8 @@ function CookieBanner({ go }) {
 }
 
 function App() {
-  const [route, setRoute] = useState('landing');
-  const [ctx, setCtx] = useState({});
+  const [route, setRoute] = useState(() => router.pathToState(window.location.pathname).route);
+  const [ctx, setCtx] = useState(() => router.pathToState(window.location.pathname).ctx);
   const [hist, setHist] = useState([]); // stack of {route, ctx} snapshots powering Back
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -4267,23 +4279,31 @@ function App() {
   const go = (r, payload) => {
     if (AUTH_ROUTES.has(r) && !user) { openAuth('login'); return; }
     setHist(h => (r === route ? h : [...h, { route, ctx }]));
-    if (payload) setCtx(c => ({ ...c, ...payload }));
+    const nextCtx = payload ? { ...ctx, ...payload } : ctx;
+    if (payload) setCtx(nextCtx);
     setRoute(r);
-    try { window.history.pushState({ wyrm: r }, ''); } catch (e) {}
+    // реальный URL: шаринг / SEO / OG-превью / «назад» / закладки
+    try { window.history.pushState({ wyrm: r }, '', router.stateToPath(r, nextCtx)); } catch (e) {}
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-  const back = () => {
-    setHist(h => {
-      if (!h.length) { setRoute('landing'); return h; }
-      const prev = h[h.length - 1];
-      setRoute(prev.route); setCtx(prev.ctx);
-      return h.slice(0, -1);
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  // подтягиваем мету книги при deep-link/назад (Reader всё равно грузит узлы по slug)
+  const hydrateStory = (slug) => { store.getStory(slug).then(s => { if (s) setCtx(c => ({ ...c, storyTitle: s.title, storyAuthor: s.author })); }).catch(() => {}); };
+  // источник правды навигации — URL: чинит настоящие «назад/вперёд» браузера
+  const applyLocation = () => {
+    const st = router.pathToState(window.location.pathname);
+    setRoute(st.route);
+    setCtx(st.ctx);
+    setHist(h => (h.length ? h.slice(0, -1) : h));
+    if (st.route === 'reader' && st.ctx.story) hydrateStory(st.ctx.story);
+    window.scrollTo({ top: 0 });
   };
-  const backRef = useRef(); backRef.current = back;
+  const applyRef = useRef(); applyRef.current = applyLocation;
   useEffect(() => {
-    const onpop = () => backRef.current && backRef.current();
+    // нормализуем первую запись истории под текущий URL + подтягиваем книгу для deep-link
+    const st = router.pathToState(window.location.pathname);
+    try { window.history.replaceState({ wyrm: st.route }, '', router.stateToPath(st.route, st.ctx)); } catch (e) {}
+    if (st.route === 'reader' && st.ctx.story) hydrateStory(st.ctx.story);
+    const onpop = () => applyRef.current && applyRef.current();
     window.addEventListener('popstate', onpop);
     return () => window.removeEventListener('popstate', onpop);
   }, []);

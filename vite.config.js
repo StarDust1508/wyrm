@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Base is relative so the built site works from any sub-path
-// (GitHub Pages project site, local `vite preview`, file host, etc.).
+// Absolute base: prod is the root domain galathilion.ru, and deep paths like
+// /book/:slug MUST reference /assets/* (with './' they resolve to /book/assets → 404).
+// (Breaks sub-path hosting such as a GitHub Pages project site — not used for prod.)
 export default defineConfig({
-  base: './',
+  base: '/',
   plugins: [react()],
   server: { port: Number(process.env.PORT) || 5173 },
   build: { outDir: 'dist', sourcemap: true },
